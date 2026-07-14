@@ -42,6 +42,15 @@
   </section>
   <section class="panel saved-imports"><div class="section-heading"><h2>Saved timing imports</h2><button type="button" (click)="loadSavedImports()">Load saved imports</button></div>@if (savedImports().length) { <div class="choice-list"> @for (saved of savedImports(); track saved.id) { <button type="button" (click)="reopenImport(saved.id)">{{ saved.driverName }} · {{ saved.raceLabel }} · {{ saved.classLabel }} <small>{{ saved.fetchedAt }} <span>Reopen</span></small></button> } </div> } @else { <p class="meta">Load persisted imports to reopen timing without contacting LiveRC.</p> }</section>
   @if (analysis(); as current) {
+    <section class="panel calibration-panel">
+      <div class="section-heading"><div><p class="eyebrow">BROWSER SAM3 CALIBRATION</p><h2>Set the race geometry</h2></div><span class="state">{{ current.state }}</span></div>
+      <p class="meta">Video stays in browser SQLite. SAM3 runs locally with WebGPU first, then WASM fallback.</p>
+      <button type="button" (click)="startCalibration()" [disabled]="current.state !== 'draft' && current.state !== 'awaiting_calibration'">Begin calibration</button>
+      <label for="race-start">Race start (seconds)</label><input id="race-start" type="number" min="0" [value]="calibration().raceStartSeconds ?? ''" (input)="setRaceStart(+$any($event.target).value)" />
+      <div class="calibration-actions"><button type="button" (click)="addCalibrationMarker()">Add marker</button><button type="button" (click)="saveCalibration()" [disabled]="!calibration().markers.length">Save correction set</button></div>
+      @if (calibration().markers.length) { <div class="marker-list">@for (marker of calibration().markers; track marker.id) { <span>Marker {{ $index + 1 }} · {{ marker.position.x | number: '1.2-2' }}, {{ marker.position.y | number: '1.2-2' }} <button type="button" class="quiet" (click)="removeCalibrationMarker(marker.id)">Remove</button></span> }</div> }
+      @if (calibrationError()) { <p class="error" role="alert">{{ calibrationError() }}</p> }
+    </section>
     <section class="panel status">
       <div>
         <p class="eyebrow">CURRENT ANALYSIS</p>

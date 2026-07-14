@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
+import { isNormalizedBox, isNormalizedPoint, type CorrectionSet } from "../../shared/calibration-contract";
 import { errorMessage } from "./errors";
 import type { AnalysisProgressRoom } from "./progress-room";
 import type { AnalysisWorkflow } from "./workflow";
@@ -58,6 +59,20 @@ const createAnalysis = z.object({
   videoPath: z.string().trim().min(1),
   videoName: z.string().trim().min(1),
   carDescription: z.string().trim().optional(),
+  videoStorage: z.literal("browser-sqlite").default("browser-sqlite"),
+  localVideoRef: z.object({ id: z.string().min(1), name: z.string().min(1), mimeType: z.string().min(1), size: z.number().nonnegative(), lastModified: z.number().nonnegative() }).optional(),
+});
+
+const correctionSet = z.object({
+  raceStartSeconds: z.number().finite().nonnegative(),
+  markerReferenceSeconds: z.number().finite().nonnegative(),
+  carSelectionSeconds: z.number().finite().nonnegative(),
+  markers: z.array(z.object({ id: z.string().min(1), position: z.object({ x: z.number(), y: z.number() }), source: z.enum(["detected", "manual"]) })).min(1),
+  selectedCarBox: z.object({ x: z.number(), y: z.number(), width: z.number(), height: z.number() }),
+  carDescription: z.string().trim().optional(),
+}).superRefine((value, ctx) => {
+  if (!isNormalizedBox(value.selectedCarBox)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["selectedCarBox"], message: "selectedCarBox must be normalized and within the frame" });
+  value.markers.forEach((marker, index) => { if (!isNormalizedPoint(marker.position)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["markers", index, "position"], message: "marker position must be normalized" }); });
 });
 
 const timingImportRequiredFields = {
@@ -156,10 +171,26 @@ export function createApp(workflow: AnalysisWorkflow, runtime?: AnalysisRuntime,
     return value ? c.json(value) : c.json({ error: "timing import not found" }, 404);
   });
   app.post("/analyses", async (c) => {
-    const parsed = createAnalysis.safeParse(await c.req.json());
+    const input = await c.req.json();
+    const parsed = createAnalysis.safeParse(input);
     if (!parsed.success)
       return c.json({ error: "videoPath and videoName are required" }, 400);
     return c.json(await workflow.createDraft(parsed.data), 201);
+  });
+  app.post("/analyses/:id/calibration/start", (c) => result(c, () => workflow.startCalibration(c.req.param("id"))));
+  app.post("/analyses/:id/correction-sets", async (c) => {
+    const parsed = correctionSet.safeParse(await c.req.json());
+    if (!parsed.success) return c.json({ error: "invalid correction set", details: parsed.error.flatten() }, 400);
+    try {
+      const analysis = await workflow.get(c.req.param("id"));
+      if (analysis.videoStorage !== "browser-sqlite") return c.json({ error: "only browser-sqlite videos are supported" }, 400);
+      const created = await (workflow as AnalysisWorkflowWithCorrections).createAndAcceptCorrectionSet(c.req.param("id"), parsed.data);
+      return c.json(created, 201);
+    } catch (error) { return c.json({ error: errorMessage(error) }, 400); }
+  });
+  app.get("/analyses/:id/correction-sets", async (c) => {
+    try { return c.json({ correctionSets: await (workflow as AnalysisWorkflowWithCorrections).listCorrectionSets(c.req.param("id")) }); }
+    catch (error) { return c.json({ error: errorMessage(error) }, 404); }
   });
   app.get("/analyses/:id", (c) =>
     result(c, () => workflow.get(c.req.param("id")), 404),
@@ -245,6 +276,12 @@ export function createApp(workflow: AnalysisWorkflow, runtime?: AnalysisRuntime,
   });
   return app;
 }
+
+type AnalysisWorkflowWithCorrections = AnalysisWorkflow & {
+  createAndAcceptCorrectionSet(id: string, payload: CorrectionSetPayload): Promise<CorrectionSet>;
+  listCorrectionSets(id: string): Promise<CorrectionSet[]>;
+};
+type CorrectionSetPayload = Omit<CorrectionSet, "id" | "analysisId" | "version" | "accepted" | "createdAt">;
 
 function requiredQuery(c: { req: { query: (name: string) => string | undefined } }, name: string) {
   const value = c.req.query(name);

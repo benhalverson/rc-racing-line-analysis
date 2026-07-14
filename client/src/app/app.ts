@@ -5,6 +5,9 @@ import type { Subscription } from 'rxjs';
 import { AnalysisApi, type Analysis, type AnalysisConnectionState } from './app/analysis-api';
 import { TimingApi, type TimingDriver, type TimingEvent, type TimingImportSummary, type TimingRace, type TimingTrack } from './app/timing-api';
 import { buildTimingImportRequest, confirmTimingSelection, emptyTimingSelection, selectTimingDriver, selectTimingEvent, selectTimingRace, selectTimingTrack, timingDriverOptionKey, timingImportReadiness, timingSelectionIsConfirmed, type TimingSelection } from './app/timing-selection';
+import { BrowserSqliteStore } from './app/browser-sqlite';
+import { addMarker, emptyCalibration, removeMarker, type CalibrationState } from './app/calibration-state';
+import type { CorrectionSet, LocalVideoRef } from '../../../shared/calibration-contract';
 @Component({
   selector: 'app-root',
   imports: [DecimalPipe],
@@ -14,6 +17,7 @@ import { buildTimingImportRequest, confirmTimingSelection, emptyTimingSelection,
 export class App {
   private readonly api = inject(AnalysisApi);
   private readonly timingApi = inject(TimingApi);
+  private readonly videoStore = inject(BrowserSqliteStore);
   private readonly destroyRef = inject(DestroyRef);
   private updates?: Subscription;
   readonly videoPath = signal('');
@@ -29,9 +33,13 @@ export class App {
   readonly timingError = signal('');
   readonly trackQuery = signal('');
   readonly savedImports = signal<TimingImportSummary[]>([]);
+  readonly localVideoRef = signal<LocalVideoRef | undefined>(undefined);
+  readonly calibration = signal<CalibrationState>(emptyCalibration());
+  readonly samStatus = signal<'idle' | 'loading' | 'webgpu' | 'wasm' | 'failed'>('idle');
+  readonly calibrationError = signal('');
   selectVideo(event: Event) {
     const file = (event.target as HTMLInputElement).files?.[0];
-    if (file) this.videoPath.set(`local://${file.name}`);
+    if (file) this.videoStore.saveVideo(file).then((ref) => { this.localVideoRef.set(ref); this.videoPath.set(`browser-sqlite://${ref.id}`); this.message.set('Video saved in browser SQLite.'); }).catch((error: Error) => this.message.set(error.message));
   }
   createDraft() {
     this.api
@@ -39,6 +47,8 @@ export class App {
         videoPath: this.videoPath(),
         videoName: this.videoPath().split('/').pop() ?? '',
         carDescription: this.carDescription() || undefined,
+        videoStorage: 'browser-sqlite',
+        localVideoRef: this.localVideoRef(),
       })
       .subscribe({
         next: (value) => {
@@ -48,6 +58,11 @@ export class App {
         error: () => this.message.set('Unable to create draft.'),
       });
   }
+  startCalibration() { const current = this.analysis(); if (!current) return; this.api.startCalibration(current.id).subscribe({ next: (value) => this.analysis.set(value), error: () => this.calibrationError.set('Unable to start calibration.') }); }
+  setRaceStart(seconds: number) { this.calibration.update((state) => ({ ...state, raceStartSeconds: seconds })); }
+  addCalibrationMarker(x = 0.5, y = 0.5) { this.calibration.update((state) => addMarker(state, { x, y })); }
+  removeCalibrationMarker(id: string) { this.calibration.update((state) => removeMarker(state, id)); }
+  saveCalibration() { const current = this.analysis(); const state = this.calibration(); if (!current || state.raceStartSeconds === null || state.markerReferenceSeconds === null || state.carSelectionSeconds === null || !state.selectedCarBox || !state.markers.length) { this.calibrationError.set('Set race start, marker frame, car frame, markers, and car box first.'); return; } const payload = { ...state, raceStartSeconds: state.raceStartSeconds, markerReferenceSeconds: state.markerReferenceSeconds, carSelectionSeconds: state.carSelectionSeconds, selectedCarBox: state.selectedCarBox }; const localSet: CorrectionSet = { ...payload, id: crypto.randomUUID(), analysisId: current.id, version: 0, accepted: false, createdAt: new Date().toISOString() }; this.videoStore.saveCorrectionSet(localSet).then(() => this.api.saveCorrectionSet(current.id, payload).subscribe({ next: (set) => { this.videoStore.saveCorrectionSet(set).catch(() => undefined); this.analysis.update((analysis) => analysis ? { ...analysis, state: 'ready', acceptedCorrectionSetId: set.id } : analysis); this.message.set(`Correction set v${set.version} synchronized to D1.`); }, error: () => this.calibrationError.set('Saved locally; synchronization failed. Retry when connected.') })).catch((error: Error) => this.calibrationError.set(error.message)); }
   queue() {
     this.action('queue');
   }

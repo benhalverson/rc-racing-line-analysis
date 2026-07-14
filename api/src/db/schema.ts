@@ -12,6 +12,18 @@ export const analyses = sqliteTable("analyses", {
   error: text("error"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
+  videoStorage: text("video_storage").notNull().default("browser-sqlite"),
+  localVideoRef: text("local_video_ref").notNull().default("{}"),
+  acceptedCorrectionSetId: text("accepted_correction_set_id"),
+});
+
+export const correctionSets = sqliteTable("correction_sets", {
+  id: text("id").primaryKey(),
+  analysisId: text("analysis_id").notNull().references(() => analyses.id, { onDelete: "cascade" }),
+  version: integer("version").notNull(),
+  payload: text("payload").notNull(),
+  accepted: integer("accepted", { mode: "boolean" }).notNull().default(false),
+  createdAt: text("created_at").notNull(),
 });
 
 export const timingImports = sqliteTable("timing_imports", {
