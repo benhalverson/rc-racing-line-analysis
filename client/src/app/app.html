@@ -23,7 +23,16 @@
       [value]="carDescription()"
       (input)="carDescription.set($any($event.target).value)"
       placeholder="blue buggy"
-    /><button type="button" (click)="createDraft()" [disabled]="!videoPath().trim()">Create draft</button>
+    /><fieldset>
+      <legend>Selected car box (pixels)</legend>
+      <div class="box-inputs">
+        <label>X<input type="number" [value]="initialBox().x" (input)="updateInitialBox('x', $any($event.target).value)" /></label>
+        <label>Y<input type="number" [value]="initialBox().y" (input)="updateInitialBox('y', $any($event.target).value)" /></label>
+        <label>Width<input type="number" min="1" [value]="initialBox().width" (input)="updateInitialBox('width', $any($event.target).value)" /></label>
+        <label>Height<input type="number" min="1" [value]="initialBox().height" (input)="updateInitialBox('height', $any($event.target).value)" /></label>
+      </div>
+    </fieldset>
+    <button type="button" (click)="createDraft()" [disabled]="!videoPath().trim()">Create draft</button>
     @if (message()) {
       <p class="message" role="status">{{ message() }}</p>
     }
@@ -54,6 +63,25 @@
         Phase: {{ current.phase }} · {{ current.progress * 100 | number: '1.0-0' }}% · Checkpoint:
         {{ current.checkpoint || 'none' }} · Connection: {{ connectionState() }}
       </p>
+      @if (tracking(); as tracking) {
+        <p class="meta" role="status">Tracking quality: {{ tracking.observations.at(-1)?.quality || 'awaiting observations' }} · {{ tracking.segments.length }} segment(s)</p>
+        @if (tracking.observations.at(-1)?.quality === 'lost') {
+          <fieldset>
+            <legend>Draw a new box to resume tracking</legend>
+            <div class="box-inputs">
+              <label>Frame<input type="number" min="0" [value]="reboxFrame()" (input)="reboxFrame.set(+$any($event.target).value)" /></label>
+              <label>Timestamp (ms)<input type="number" min="0" [value]="reboxTimestampMs()" (input)="reboxTimestampMs.set(+$any($event.target).value)" /></label>
+              <label>X<input type="number" [value]="reboxBox().x" (input)="updateReboxBox('x', $any($event.target).value)" /></label>
+              <label>Y<input type="number" [value]="reboxBox().y" (input)="updateReboxBox('y', $any($event.target).value)" /></label>
+              <label>Width<input type="number" min="1" [value]="reboxBox().width" (input)="updateReboxBox('width', $any($event.target).value)" /></label>
+              <label>Height<input type="number" min="1" [value]="reboxBox().height" (input)="updateReboxBox('height', $any($event.target).value)" /></label>
+            </div>
+            <label>Observation file<input [value]="reboxObservationFilePath()" (input)="reboxObservationFilePath.set($any($event.target).value)" placeholder="local://analysis/frames/120.json" /></label>
+            <label>Quality artifact<input [value]="reboxQualityArtifactPath()" (input)="reboxQualityArtifactPath.set($any($event.target).value)" placeholder="local://analysis/quality/120.json" /></label>
+            <button type="button" (click)="rebox()">Resume from new box</button>
+          </fieldset>
+        }
+      }
       <div class="actions">
         @if (
           current.state === 'draft' || current.state === 'cancelled' || current.state === 'failed'

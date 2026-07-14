@@ -57,6 +57,10 @@ input {
   padding: 13px;
   font: inherit;
 }
+fieldset { border: 1px solid #343d4c; border-radius: 7px; margin: 20px 0; padding: 12px; }
+legend { color: #dbe0e8; padding: 0 6px; }
+.box-inputs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.box-inputs label { margin: 0; }
 button {
   border: 0;
   border-radius: 7px;

@@ -54,11 +54,31 @@ async function workflowStatus(instance: WorkflowInstanceHandle): Promise<Workflo
   return status;
 }
 
+const boundingBox = z.object({
+  x: z.number().finite(),
+  y: z.number().finite(),
+  width: z.number().positive(),
+  height: z.number().positive(),
+}).strict();
+
 const createAnalysis = z.object({
   videoPath: z.string().trim().min(1),
   videoName: z.string().trim().min(1),
   carDescription: z.string().trim().optional(),
-});
+  initialBox: boundingBox,
+}).strict();
+
+const frameObservation = z.object({
+  segmentId: z.string().uuid(),
+  frameNumber: z.number().int().nonnegative(),
+  timestampMs: z.number().int().nonnegative(),
+  quality: z.enum(["tracked", "suspect", "lost", "reacquired"]),
+  box: boundingBox.optional(),
+  observationFilePath: z.string().trim().min(1),
+  qualityArtifactPath: z.string().trim().min(1),
+}).strict();
+
+const rebox = frameObservation.omit({ segmentId: true, quality: true }).extend({ box: boundingBox }).strict();
 
 const timingImportRequiredFields = {
   trackHost: z.string().refine((value) => value.trim().length > 0),
@@ -158,12 +178,35 @@ export function createApp(workflow: AnalysisWorkflow, runtime?: AnalysisRuntime,
   app.post("/analyses", async (c) => {
     const parsed = createAnalysis.safeParse(await c.req.json());
     if (!parsed.success)
-      return c.json({ error: "videoPath and videoName are required" }, 400);
+      return c.json({ error: "videoPath, videoName, and an initial box are required" }, 400);
     return c.json(await workflow.createDraft(parsed.data), 201);
   });
   app.get("/analyses/:id", (c) =>
     result(c, () => workflow.get(c.req.param("id")), 404),
   );
+  app.get("/analyses/:id/tracking", (c) =>
+    result(c, () => workflow.tracking(c.req.param("id")), 404),
+  );
+  app.post("/analyses/:id/tracking/observations", async (c) => {
+    const parsed = frameObservation.safeParse(await c.req.json());
+    if (!parsed.success) return c.json({ error: "invalid frame observation" }, 400);
+    try {
+      return c.json(await workflow.recordFrameObservation(c.req.param("id"), parsed.data), 201);
+    } catch (error) {
+      return c.json({ error: errorMessage(error) }, 400);
+    }
+  });
+  app.post("/analyses/:id/tracking/rebox", async (c) => {
+    const parsed = rebox.safeParse(await c.req.json());
+    if (!parsed.success) return c.json({ error: "invalid re-box" }, 400);
+    try {
+      const id = c.req.param("id");
+      await workflow.rebox(id, parsed.data);
+      return c.json(await workflow.tracking(id), 201);
+    } catch (error) {
+      return c.json({ error: errorMessage(error) }, 400);
+    }
+  });
   app.post("/analyses/:id/queue", (c) =>
     result(c, () => workflow.queue(c.req.param("id"))),
   );
