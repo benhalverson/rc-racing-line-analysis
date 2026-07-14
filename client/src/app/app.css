@@ -121,4 +121,15 @@ small { color: #9ca7b5; }
 select { width: 100%; box-sizing: border-box; border: 1px solid #343d4c; border-radius: 7px; background: #0e1118; color: #fff; padding: 13px; font: inherit; margin-bottom: 14px; }
 .success { color: #91d6aa; }
 .error { color: #ef9a9a; }
+.track-view { display: block; width: 100%; aspect-ratio: 2 / 1; margin: 16px 0; border: 1px solid #343d4c; border-radius: 7px; background: repeating-linear-gradient(0deg, #0e1118, #0e1118 19px, #151922 20px); cursor: crosshair; }
+.track-view polyline { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.observed-line { stroke: #c6a15b; stroke-width: 2.5; }
+.drawing-line { stroke: #76b7e5; stroke-width: 2; }
+.drawing-point { fill: #76b7e5; }
+.alternative-card { margin-top: 16px; padding: 16px; border: 1px solid #343d4c; border-radius: 7px; }
+.alternative-card h3 { margin: 0 0 10px; }
+.alternative-card h3 span { color: #76b7e5; font-size: .8rem; font-weight: normal; }
+.comparison { display: flex; flex-wrap: wrap; gap: 8px 14px; color: #b4bdca; font-size: .85rem; }
+.comparison strong { color: #e9edf3; }
+.comparison.observed { margin: 12px 0 20px; }
 @media (max-width: 600px) { .inline-form { flex-direction: column; align-items: stretch; } }

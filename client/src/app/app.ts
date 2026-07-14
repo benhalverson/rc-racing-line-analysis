@@ -5,6 +5,7 @@ import type { Subscription } from 'rxjs';
 import { AnalysisApi, type Analysis, type AnalysisConnectionState } from './app/analysis-api';
 import { TimingApi, type TimingDriver, type TimingEvent, type TimingImportSummary, type TimingRace, type TimingTrack } from './app/timing-api';
 import { buildTimingImportRequest, confirmTimingSelection, emptyTimingSelection, selectTimingDriver, selectTimingEvent, selectTimingRace, selectTimingTrack, timingDriverOptionKey, timingImportReadiness, timingSelectionIsConfirmed, type TimingSelection } from './app/timing-selection';
+import { compareLine, observedTrackReference, reviseAlternative, type AlternativeLine, type TrackPoint } from './app/alternative-lines';
 @Component({
   selector: 'app-root',
   imports: [DecimalPipe],
@@ -29,6 +30,11 @@ export class App {
   readonly timingError = signal('');
   readonly trackQuery = signal('');
   readonly savedImports = signal<TimingImportSummary[]>([]);
+  readonly alternativeName = signal('');
+  readonly alternativeLines = signal<AlternativeLine[]>([]);
+  readonly drawing = signal<TrackPoint[]>([]);
+  readonly observedLine = observedTrackReference;
+  readonly observedComparison = compareLine(this.observedLine);
   selectVideo(event: Event) {
     const file = (event.target as HTMLInputElement).files?.[0];
     if (file) this.videoPath.set(`local://${file.name}`);
@@ -116,6 +122,29 @@ export class App {
       error: (error) => this.timingError.set(timingError(error, 'Unable to reopen saved timing import.')),
     });
   }
+  addAlternativePoint(event: MouseEvent) {
+    const track = event.currentTarget as SVGSVGElement;
+    const bounds = track.getBoundingClientRect();
+    this.drawing.update((points) => [...points, {
+      x: Math.round(((event.clientX - bounds.left) / bounds.width) * 100),
+      y: Math.round(((event.clientY - bounds.top) / bounds.height) * 100),
+    }]);
+  }
+  undoAlternativePoint() { this.drawing.update((points) => points.slice(0, -1)); }
+  clearAlternative() { this.drawing.set([]); }
+  saveAlternative() {
+    const analysis = this.analysis();
+    const name = this.alternativeName().trim();
+    if (!analysis || !name || this.drawing().length < 2) return;
+    this.alternativeLines.update((lines) => reviseAlternative(lines, analysis.id, name, this.drawing()));
+    this.drawing.set([]);
+  }
+  alternativesForCurrentAnalysis() {
+    const id = this.analysis()?.id;
+    return id ? this.alternativeLines().filter((line) => line.analysisId === id) : [];
+  }
+  linePoints(points: TrackPoint[]) { return points.map((point) => `${point.x},${point.y}`).join(' '); }
+  alternativeVersionLabel(count: number) { return `Hypothetical. ${count} saved version${count === 1 ? '' : 's'}.`; }
   private isCurrentTimingSelection(selection: TimingSelection) {
     const current = this.timingSelection();
     return current.track === selection.track && current.event === selection.event && current.race === selection.race && current.driver === selection.driver && current.classLabel === selection.classLabel;
