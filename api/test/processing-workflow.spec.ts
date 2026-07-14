@@ -91,4 +91,33 @@ describe('analysis processing workflow', () => {
     expect(reports).toEqual(['review-ready']);
     expect(current.checkpoint).toBe('completed');
   });
+
+  it('persists stabilization artifacts through the calibration checkpoint', async () => {
+    let current = { ...baseAnalysis };
+    const artifacts = { markerObservations: [], transforms: [] };
+    const saveArtifacts = vi.fn(async () => undefined);
+    const processing = {
+      get: async () => current,
+      report: async (_id: string, update: ProcessingUpdate) => {
+        current = { ...current, ...update };
+        return current;
+      },
+      complete: async () => {
+        current = { ...current, state: 'completed', phase: 'review', progress: 1, checkpoint: 'completed' };
+        return current;
+      },
+      fail: async () => current,
+    };
+    const { step } = stepRunner();
+
+    await executeAnalysisProcessing(
+      'analysis-1',
+      step as never,
+      processing,
+      () => Promise.resolve(),
+      { provider: { stabilize: vi.fn(async () => artifacts) }, saveArtifacts },
+    );
+
+    expect(saveArtifacts).toHaveBeenCalledWith('analysis-1', artifacts);
+  });
 });
