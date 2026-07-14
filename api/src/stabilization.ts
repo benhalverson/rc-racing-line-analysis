@@ -109,8 +109,8 @@ export class MarkerBasedStabilizationProvider implements MarkerStabilizationProv
 function groupByFrame(observations: MarkerObservation[]): Map<number, MarkerObservation[]> {
   const frames = new Map<number, MarkerObservation[]>();
   for (const observation of observations) {
-    const frame = frames.get(observation.frame);
-    if (frame) frame.push(observation);
+    const frameObservations = frames.get(observation.frame);
+    if (frameObservations) frameObservations.push(observation);
     else frames.set(observation.frame, [observation]);
   }
   return frames;
