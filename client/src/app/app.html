@@ -41,6 +41,48 @@
     @if (timingError()) { <p class="error" role="alert">{{ timingError() }}</p> }
   </section>
   <section class="panel saved-imports"><div class="section-heading"><h2>Saved timing imports</h2><button type="button" (click)="loadSavedImports()">Load saved imports</button></div>@if (savedImports().length) { <div class="choice-list"> @for (saved of savedImports(); track saved.id) { <button type="button" (click)="reopenImport(saved.id)">{{ saved.driverName }} · {{ saved.raceLabel }} · {{ saved.classLabel }} <small>{{ saved.fetchedAt }} <span>Reopen</span></small></button> } </div> } @else { <p class="meta">Load persisted imports to reopen timing without contacting LiveRC.</p> }</section>
+  @if (review(); as review) {
+    <section class="panel review-workspace">
+      <div class="section-heading"><div><p class="eyebrow">TIMED RACING-LINE REVIEW</p><h2>Measured race evidence</h2></div><span class="state">LiveRC aligned</span></div>
+      <p class="meta">Original footage, accepted tracking, and track-relative geometry are shown as evidence. Amber and red segments need review before measuring.</p>
+      <div class="review-grid">
+        <div>
+          <div class="video-evidence" role="img" aria-label="Original video with tracked-car overlay">
+            <span>ORIGINAL VIDEO · TRACKED-CAR OVERLAY</span><div class="tracked-car">TRACKED</div><strong>Tracking quality · accepted</strong>
+          </div>
+          <div class="track-view">
+            <div class="section-heading"><h3>Stabilized track view</h3><small>Click to mark start/finish</small></div>
+            <svg viewBox="0 0 700 300" aria-label="Stabilized track view and observed racing line" (click)="markStartFinish($event)">
+              <path class="track-surface" d="M120 235 C55 190 70 70 170 55 C250 42 270 105 340 110 C420 115 465 45 555 65 C650 85 650 230 555 242 C470 252 435 205 350 200 C255 194 205 285 120 235" />
+              <path class="track-interior" d="M120 235 C55 190 70 70 170 55 C250 42 270 105 340 110 C420 115 465 45 555 65 C650 85 650 230 555 242 C470 252 435 205 350 200 C255 194 205 285 120 235" />
+              <path class="observed-line" d="M120 226 C100 175 115 90 180 80 C245 70 285 127 342 128 C425 130 470 75 545 90 C605 103 615 198 548 217 C472 236 420 182 342 183 C260 182 205 250 120 226" />
+              @if (review.startFinish; as startFinish) { <line class="start-finish" [attr.x1]="startFinish.x - 14" [attr.x2]="startFinish.x + 14" [attr.y1]="startFinish.y - 14" [attr.y2]="startFinish.y + 14" /> }
+            </svg>
+            <p class="meta">Cyan: observed track-relative line · {{ review.startFinish ? 'Start/finish marked; crossings can be corrected below.' : 'Mark the start/finish line to review crossings.' }}</p>
+          </div>
+        </div>
+        <div>
+          <h3>LiveRC lap alignment</h3>
+          <table><thead><tr><th>Crossing</th><th>LiveRC</th><th>Video segment</th><th>Evidence</th></tr></thead><tbody>
+            @for (lap of review.laps; track $index) {
+              <tr [class.active]="selectedReviewLap() === lap.crossingLapNumber" [class.invalid]="lap.evidenceQuality === 'invalid'" (click)="selectLap(lap.crossingLapNumber)">
+                <td>{{ lap.crossingLapNumber }}</td><td>Lap {{ lap.liveRcLap.lapNumber }} · {{ lap.liveRcLap.lapTimeText }}</td><td>{{ formatVideoTime(lap.videoStartSeconds) }}–{{ formatVideoTime(lap.videoEndSeconds) }}</td><td [class]="lap.evidenceQuality">{{ lap.evidenceQuality }}</td>
+              </tr>
+            }
+          </tbody></table>
+          @if (selectedReviewLap(); as selectedLap) {
+            <div class="crossing-controls">
+              <label for="crossing-time">Crossing time (video seconds)</label><input id="crossing-time" type="number" min="0" step="0.001" [value]="crossingTime()" (input)="crossingTime.set($any($event.target).value)" [attr.aria-invalid]="reviewError() ? 'true' : null" aria-describedby="crossing-error" />
+              <button type="button" (click)="correctCrossing()">Correct lap {{ selectedLap }} crossing</button>
+              @if (reviewError()) { <p id="crossing-error" class="error" role="alert">{{ reviewError() }}</p> }
+              <label for="liverc-lap">Assign crossing to LiveRC lap</label><select id="liverc-lap" (change)="assignLapFromEvent($event)">@for (lap of review.laps; track $index) { <option [value]="lap.liveRcLap.lapNumber">LiveRC lap {{ lap.liveRcLap.lapNumber }}</option> }</select>
+            </div>
+          }
+          <p class="evidence-warning">Evidence warning: uncertain and invalid segments remain visible but are not presented as measured racing-line evidence.</p>
+        </div>
+      </div>
+    </section>
+  }
   @if (analysis(); as current) {
     <section class="panel status">
       <div>
