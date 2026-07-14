@@ -5,7 +5,7 @@ import type { Observable } from 'rxjs';
 export interface TimingTrack { host: string; name: string; url: string; }
 export interface TimingEvent { name: string; url: string; }
 export interface TimingRace { id: string | null; label: string; url: string; }
-export interface TimingDriver { name: string; normalizedName: string; }
+export interface TimingDriver { name: string; normalizedName: string; url?: string; }
 export interface TimingLap { lapNumber: number; lapTimeSeconds: number | null; lapTimeText: string; valid: boolean | null; statusText: string | null; }
 export interface TimingImport {
   id: string; trackHost: string; trackName: string; trackUrl: string; eventName: string; eventUrl: string;

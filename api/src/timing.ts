@@ -82,9 +82,12 @@ export function parseRaces(html: string, sourceUrl: string) {
 
 export function parseDrivers(html: string) {
   return [...html.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi)].flatMap((match) => {
-    const cells = [...match[1].matchAll(/<t[dh]\b[^>]*>([\s\S]*?)<\/t[dh]>/gi)].map((cell) => text(cell[1])).filter(Boolean);
-    const name = cells.find((cell) => /[a-z]/i.test(cell) && !/^(driver|name|class)$/i.test(cell));
-    return name ? [{ name, normalizedName: normalizeDriverName(name) }] : [];
+    const row = match[1];
+    const plain = text(row);
+    const name = plain.match(/\b\d+\s+\d+\s+(.+?)\s+View Laps\b/i)?.[1]?.trim();
+    const lapLink = row.match(/<a\b[^>]*href=["']([^"']+)["'][^>]*>[\s\S]*?View Laps[\s\S]*?<\/a>/i)?.[1];
+    if (!name) return [];
+    return [{ name, normalizedName: normalizeDriverName(name), ...(lapLink && lapLink !== "#" ? { url: lapLink } : {}) }];
   });
 }
 
@@ -102,12 +105,13 @@ export function parseDriverResult(html: string, driverName: string): { driverNam
   return { driverName: foundName, driverId: null, laps };
 }
 
-export async function importTiming(input: Omit<TimingImport, "id" | "source" | "fetchedAt" | "parserVersion" | "sourceHash" | "driverName" | "normalizedDriverName" | "driverId" | "laps"> & { driverName: string }, fetcher: TimingFetcher, store: TimingStore) {
-  const page = await fetcher(input.raceUrl);
+export async function importTiming(input: Omit<TimingImport, "id" | "source" | "fetchedAt" | "parserVersion" | "sourceHash" | "driverName" | "normalizedDriverName" | "driverId" | "laps"> & { driverName: string; driverUrl?: string }, fetcher: TimingFetcher, store: TimingStore) {
+  const { driverUrl, ...timingInput } = input;
+  const page = await fetcher(driverUrl ? new URL(driverUrl, input.raceUrl).toString() : input.raceUrl);
   if (page.status < 200 || page.status >= 300) throw new Error(`LiveRC returned HTTP ${page.status}`);
   const result = parseDriverResult(page.html, input.driverName);
   const value: TimingImport = {
-    ...input, id: randomUUID(), source: "liverc", fetchedAt: new Date().toISOString(), parserVersion: "liverc-html-v1",
+    ...timingInput, id: randomUUID(), source: "liverc", fetchedAt: new Date().toISOString(), parserVersion: "liverc-html-v1",
     sourceHash: createHash("sha256").update(page.html).digest("hex"), driverName: result.driverName,
     normalizedDriverName: normalizeDriverName(result.driverName), driverId: result.driverId, laps: result.laps,
   };

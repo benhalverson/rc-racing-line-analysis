@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createApp } from "../src/app";
 import { InMemoryAnalysisStore } from "../src/store";
-import { InMemoryTimingStore, normalizeDriverName, parseDriverResult, parseEvents, parseRaces, parseTrackList } from "../src/timing";
+import { InMemoryTimingStore, normalizeDriverName, parseDriverResult, parseDrivers, parseEvents, parseRaces, parseTrackList } from "../src/timing";
 import { AnalysisWorkflow } from "../src/workflow";
 
 const tracksHtml = '<a href="https://rcra.liverc.com/">RCRA</a><a href="https://other.liverc.com/">Other Track</a>';
@@ -18,6 +18,15 @@ describe("LiveRC timing adapter", () => {
   it("normalizes names for matching while preserving the displayed name", () => {
     expect(normalizeDriverName(" José  Racer ")).toBe("jose racer");
     expect(parseDriverResult(driverHtml, "alex racer")).toMatchObject({ driverName: "Alex Racer", laps: [{ lapNumber: 1, lapTimeSeconds: 18.42 }, { lapNumber: 2, lapTimeSeconds: 17.98 }] });
+  });
+
+  it("extracts the clean driver name and View Laps URL from LiveRC result rows", () => {
+    const html = '<tr><td>2</td><td>2</td><td>BEN HALVERSON</td><td><a href="?p=view_driver_laps&id=2">View Laps</a></td></tr>';
+    expect(parseDrivers(html)).toEqual([{ name: "BEN HALVERSON", normalizedName: "ben halverson", url: "?p=view_driver_laps&id=2" }]);
+  });
+
+  it("does not expose a placeholder hash as a driver detail URL", () => {
+    expect(parseDrivers('<tr><td>4</td><td>4 BEN HALVERSON</td><td><a href="#">View Laps</a></td></tr>')).toEqual([{ name: "BEN HALVERSON", normalizedName: "ben halverson" }]);
   });
 
   it("exposes selected-driver imports and rejects pages without individual laps", async () => {
