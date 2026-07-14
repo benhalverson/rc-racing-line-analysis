@@ -3,6 +3,7 @@ import { z } from "zod";
 import { errorMessage } from "./errors.js";
 import type { AnalysisProgressRoom } from "./progress-room.js";
 import type { AnalysisWorkflow } from "./workflow.js";
+import { importTiming, parseDrivers, parseEvents, parseRaces, parseTrackList, type TimingFetcher, type TimingStore } from "./timing";
 
 export interface AnalysisRuntime {
   workflow: {
@@ -58,9 +59,66 @@ const createAnalysis = z.object({
   videoName: z.string().trim().min(1),
   carDescription: z.string().trim().optional(),
 });
-export function createApp(workflow: AnalysisWorkflow, runtime?: AnalysisRuntime) {
+export type TimingRuntime = { fetch: TimingFetcher; store: TimingStore };
+
+export function createApp(workflow: AnalysisWorkflow, runtime?: AnalysisRuntime, timing?: TimingRuntime) {
   const app = new Hono();
   app.get("/health", (c) => c.json({ ok: true }));
+  app.get("/timing/tracks", async (c) => {
+    if (!timing) return c.json({ error: "timing import is unavailable" }, 503);
+    const page = await timing.fetch("https://live.liverc.com/");
+    if (page.status < 200 || page.status >= 300) return c.json({ error: `LiveRC returned HTTP ${page.status}` }, 502);
+    const query = c.req.query("query")?.trim().toLowerCase();
+    const tracks = parseTrackList(page.html, page.url).filter((track) => !query || `${track.name} ${track.host}`.toLowerCase().includes(query));
+    return c.json({ tracks });
+  });
+  app.get("/timing/events", async (c) => {
+    if (!timing) return c.json({ error: "timing import is unavailable" }, 503);
+    try {
+      const page = await timing.fetch(requiredQuery(c, "trackUrl"));
+      if (page.status < 200 || page.status >= 300) return c.json({ error: `LiveRC returned HTTP ${page.status}` }, 502);
+      return c.json({ events: parseEvents(page.html, page.url) });
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : "unable to read LiveRC events" }, 400);
+    }
+  });
+  app.get("/timing/races", async (c) => {
+    if (!timing) return c.json({ error: "timing import is unavailable" }, 503);
+    try {
+      const page = await timing.fetch(requiredQuery(c, "eventUrl"));
+      if (page.status < 200 || page.status >= 300) return c.json({ error: `LiveRC returned HTTP ${page.status}` }, 502);
+      return c.json({ races: parseRaces(page.html, page.url) });
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : "unable to read LiveRC races" }, 400);
+    }
+  });
+  app.get("/timing/drivers", async (c) => {
+    if (!timing) return c.json({ error: "timing import is unavailable" }, 503);
+    try {
+      const page = await timing.fetch(requiredQuery(c, "raceUrl"));
+      if (page.status < 200 || page.status >= 300) return c.json({ error: `LiveRC returned HTTP ${page.status}` }, 502);
+      return c.json({ drivers: parseDrivers(page.html) });
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : "unable to read LiveRC drivers" }, 400);
+    }
+  });
+  app.post("/timing/imports", async (c) => {
+    if (!timing) return c.json({ error: "timing import is unavailable" }, 503);
+    try {
+      const body = await c.req.json();
+      const required = ["trackHost", "trackName", "trackUrl", "eventName", "eventUrl", "raceLabel", "roundLabel", "classLabel", "raceUrl", "driverName"];
+      if (required.some((key) => typeof body[key] !== "string" || !body[key].trim())) return c.json({ error: "all selected track, event, race, and driver fields are required" }, 400);
+      const value = await importTiming(body, timing.fetch, timing.store);
+      return c.json(value, 201);
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : "unable to import LiveRC timing" }, 400);
+    }
+  });
+  app.get("/timing/imports/:id", async (c) => {
+    if (!timing) return c.json({ error: "timing import is unavailable" }, 503);
+    const value = await timing.store.getTimingImport(c.req.param("id"));
+    return value ? c.json(value) : c.json({ error: "timing import not found" }, 404);
+  });
   app.post("/analyses", async (c) => {
     const parsed = createAnalysis.safeParse(await c.req.json());
     if (!parsed.success)
@@ -150,6 +208,12 @@ export function createApp(workflow: AnalysisWorkflow, runtime?: AnalysisRuntime)
     }
   });
   return app;
+}
+
+function requiredQuery(c: { req: { query: (name: string) => string | undefined } }, name: string) {
+  const value = c.req.query(name);
+  if (!value?.trim()) throw new Error(`${name} is required`);
+  return value;
 }
 
 async function getOrCreateInstance(runtime: AnalysisRuntime | undefined, id: string) {
