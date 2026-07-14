@@ -1,0 +1,24 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.5.3/schema.json",
+  "files": {
+    "includes": [
+      "api/**/*.ts",
+      "client/src/**/*.ts",
+      "client/src/**/*.html",
+      "!api/.wrangler/**",
+      "!api/worker-configuration.d.ts",
+      "!client/dist/**"
+    ]
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true
+    }
+  },
+  "html": {
+    "parser": {
+      "interpolation": true
+    }
+  }
+}

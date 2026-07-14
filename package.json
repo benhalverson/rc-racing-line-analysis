@@ -6,12 +6,14 @@
   "scripts": {
     "dev": "pnpm --dir api dev",
     "start": "pnpm --dir client start",
+    "lint": "biome lint api client/src",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "build": "pnpm run typecheck && pnpm run build:client",
     "build:client": "pnpm --dir client run build"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.5.3",
     "@types/node": "^22.0.0",
     "typescript": "6.0.3",
     "vitest": "^3.2.0"

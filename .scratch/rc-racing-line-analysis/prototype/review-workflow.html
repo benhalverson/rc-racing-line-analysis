@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Prototype — RC Racing Line Review</title>
+    <style>
+      :root { color-scheme: dark; --bg:#101315; --panel:#191e20; --muted:#9aa6a8; --line:#2b3638; --cyan:#71e1d0; --orange:#ffb86b; --red:#ff7d7d; }
+      * { box-sizing: border-box; }
+      body { margin:0; background:var(--bg); color:#edf4f2; font:14px/1.4 system-ui,sans-serif; }
+      header { padding:20px 28px; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; gap:20px; align-items:center; }
+      h1,h2,p { margin:0; } h1 { font-size:20px; } h2 { font-size:14px; letter-spacing:.04em; text-transform:uppercase; color:var(--muted); }
+      .prototype { color:var(--orange); font-size:12px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; }
+      main { display:grid; grid-template-columns:minmax(0,1.4fr) minmax(360px,.8fr); gap:16px; padding:16px; max-width:1500px; margin:auto; }
+      .panel { background:var(--panel); border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+      .panel > .title { padding:14px 16px; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; align-items:center; }
+      .video { aspect-ratio:16/9; background:radial-gradient(circle at 55% 48%,#4c594a,#252d2b 42%,#111719 75%); position:relative; }
+      .video::after { content:'GoPro footage · tracked car overlay'; position:absolute; left:18px; bottom:16px; color:#cdd9d5; background:#101315cc; padding:6px 9px; border-radius:5px; }
+      .car { position:absolute; left:54%; top:48%; width:55px; height:30px; border:3px solid var(--cyan); border-radius:7px; box-shadow:0 0 22px var(--cyan); }
+      .video .state { position:absolute; right:16px; top:16px; color:var(--cyan); background:#101315dd; padding:6px 9px; border-radius:5px; }
+      .controls { padding:12px 16px 16px; } input[type=range] { width:100%; accent-color:var(--cyan); }
+      .time { display:flex; justify-content:space-between; color:var(--muted); font-variant-numeric:tabular-nums; }
+      .map { padding:16px; }
+      svg { display:block; width:100%; height:300px; background:#111719; border-radius:7px; }
+      .track { fill:none; stroke:#596769; stroke-width:76; stroke-linecap:round; stroke-linejoin:round; }
+      .inner { fill:none; stroke:#222a2c; stroke-width:58; stroke-linecap:round; stroke-linejoin:round; }
+      .observed { fill:none; stroke:var(--cyan); stroke-width:4; stroke-linecap:round; stroke-linejoin:round; }
+      .alternative { fill:none; stroke:var(--orange); stroke-width:4; stroke-dasharray:8 7; stroke-linecap:round; stroke-linejoin:round; }
+      .dot { fill:#91f06c; stroke:#172319; stroke-width:3; }
+      .legend { display:flex; gap:16px; color:var(--muted); padding-top:10px; } .legend span::before { content:''; display:inline-block; width:22px; border-top:3px solid currentColor; margin:0 7px 3px 0; } .legend .alt::before { border-top-style:dashed; }
+      .warning { margin:12px 16px 0; padding:10px 12px; color:#ffd7a8; background:#3d2d1d; border:1px solid #76512e; border-radius:7px; }
+      table { width:100%; border-collapse:collapse; } th,td { padding:10px 12px; border-bottom:1px solid var(--line); text-align:left; } th { color:var(--muted); font-size:12px; font-weight:500; } tr.active { background:#203534; } .good { color:var(--cyan); } .uncertain { color:var(--orange); }
+      .facts { display:grid; grid-template-columns:1fr 1fr; gap:10px; padding:14px 16px 16px; } .fact { background:#111719; border-radius:7px; padding:10px; } .fact b { display:block; font-size:18px; } .fact small { color:var(--muted); }
+      .actions { padding:14px 16px; display:flex; gap:8px; flex-wrap:wrap; } button { background:#263436; color:#edf4f2; border:1px solid #3c4b4d; border-radius:6px; padding:8px 11px; cursor:pointer; } button:hover { border-color:var(--cyan); } button.primary { background:var(--cyan); border-color:var(--cyan); color:#10201f; font-weight:700; }
+      .note { color:var(--muted); padding:0 16px 16px; }
+      @media (max-width:900px) { main { grid-template-columns:1fr; } }
+    </style>
+  </head>
+  <body>
+    <header><div><div class="prototype">Throwaway prototype</div><h1>Race line review · Sportsman 17.5 · Ben Halverson</h1></div><div class="prototype">Hypothetical lines are not predicted times</div></header>
+    <main>
+      <section>
+        <div class="panel">
+          <div class="title"><h2>Video evidence</h2><span>Lap 3 / 8</span></div>
+          <div class="video"><div class="car"></div><div class="state">TRACKED · 96%</div></div>
+          <div class="controls"><input type="range" min="0" max="100" value="46" /><div class="time"><span>00:42.180</span><span>03:11.821</span></div></div>
+        </div>
+        <div class="panel" style="margin-top:16px"><div class="title"><h2>Track-relative line</h2><span>Start/finish crossings detected</span></div><div class="map">
+          <svg viewBox="0 0 700 300" aria-label="Track-relative line comparison">
+            <path class="track" d="M120 235 C55 190 70 70 170 55 C250 42 270 105 340 110 C420 115 465 45 555 65 C650 85 650 230 555 242 C470 252 435 205 350 200 C255 194 205 285 120 235" />
+            <path class="inner" d="M120 235 C55 190 70 70 170 55 C250 42 270 105 340 110 C420 115 465 45 555 65 C650 85 650 230 555 242 C470 252 435 205 350 200 C255 194 205 285 120 235" />
+            <path class="observed" d="M120 226 C100 175 115 90 180 80 C245 70 285 127 342 128 C425 130 470 75 545 90 C605 103 615 198 548 217 C472 236 420 182 342 183 C260 182 205 250 120 226" />
+            <path class="alternative" d="M120 217 C90 160 115 78 182 72 C248 68 300 114 350 125 C430 143 476 66 552 82 C625 98 628 210 548 226 C468 242 416 169 344 171 C260 170 205 263 120 217" />
+            <circle class="dot" cx="180" cy="80" r="7"/><circle class="dot" cx="342" cy="128" r="7"/><circle class="dot" cx="545" cy="90" r="7"/><circle class="dot" cx="548" cy="217" r="7"/>
+          </svg>
+          <div class="legend"><span style="color:var(--cyan)">Observed line</span><span class="alt" style="color:var(--orange)">Alternative A</span><span style="color:#91f06c">Green marker</span></div>
+        </div></div>
+      </section>
+      <aside>
+        <div class="panel"><div class="title"><h2>Lap timing</h2><span>LiveRC · cached</span></div>
+          <table><thead><tr><th>Lap</th><th>LiveRC time</th><th>Video</th><th>Quality</th></tr></thead><tbody>
+            <tr><td>1</td><td>24.494</td><td>00:00–00:24</td><td class="good">Good</td></tr><tr><td>2</td><td>31.970</td><td>00:24–00:56</td><td class="good">Good</td></tr><tr class="active"><td>3</td><td>28.841</td><td>00:56–01:25</td><td class="good">Good</td></tr><tr><td>4</td><td>29.115</td><td>01:25–01:54</td><td class="uncertain">Suspect</td></tr>
+          </tbody></table>
+          <div class="facts"><div class="fact"><small>Observed lap</small><b>28.841s</b></div><div class="fact"><small>Line length</small><b>42.8m</b></div><div class="fact"><small>Max curvature</small><b>0.31/m</b></div><div class="fact"><small>Track quality</small><b class="uncertain">91%</b></div></div>
+        </div>
+        <div class="panel" style="margin-top:16px"><div class="title"><h2>Alternative line</h2><span>Hypothetical</span></div><div class="actions"><button class="primary" id="draw">Draw alternative</button><button id="clear">Clear</button><button id="correct">Correct crossing</button></div><p class="note" id="status">Alternative A is compared by geometry only. No predicted lap time is shown.</p></div>
+        <div class="panel" style="margin-top:16px"><div class="title"><h2>Evidence warning</h2><span>Lap 4</span></div><div class="warning">Tracking became suspect near the far hairpin. Review the segment before using its line measurements.</div></div>
+      </aside>
+    </main>
+    <script>
+      const status = document.querySelector('#status');
+      document.querySelector('#draw').onclick = () => status.textContent = 'Drawing mode: click track points to create Alternative B. Measurements remain geometry-only.';
+      document.querySelector('#clear').onclick = () => status.textContent = 'Alternative line cleared. Observed line and LiveRC timing remain unchanged.';
+      document.querySelector('#correct').onclick = () => status.textContent = 'Correction mode: choose the crossing frame, then confirm its LiveRC lap number.';
+    </script>
+  </body>
+</html>
