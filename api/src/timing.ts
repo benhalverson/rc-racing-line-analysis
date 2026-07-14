@@ -98,7 +98,7 @@ export function parseDriverResult(html: string, driverName: string): { driverNam
   if (!row) throw new Error(`driver result not found for ${driverName}`);
   const cells = [...row.matchAll(/<t[dh]\b[^>]*>([\s\S]*?)<\/t[dh]>/gi)].map((match) => text(match[1])).filter(Boolean);
   const foundName = cells.find((cell) => normalizeDriverName(cell) === wanted) ?? driverName;
-  const laps = [...html.matchAll(/(?:lap|#)\s*(\d+)\D+(\d+(?:\.\d+)?)\s*(?:s|sec)?/gi)].map((match) => ({
+  const laps = [...html.matchAll(/\blap\s*(\d+)\s*[:=-]\s*(\d+(?:\.\d+)?)\s*(?:s|sec)?\b/gi)].map((match) => ({
     lapNumber: Number(match[1]), lapTimeSeconds: Number(match[2]), lapTimeText: match[2], valid: true, statusText: null,
   }));
   if (laps.length === 0) throw new Error("selected driver result has no individual lap times");

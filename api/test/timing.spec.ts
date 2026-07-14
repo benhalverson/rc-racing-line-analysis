@@ -29,6 +29,10 @@ describe("LiveRC timing adapter", () => {
     expect(parseDrivers('<tr><td>4</td><td>4 BEN HALVERSON</td><td><a href="#">View Laps</a></td></tr>')).toEqual([{ name: "BEN HALVERSON", normalizedName: "ben halverson" }]);
   });
 
+  it("rejects a race summary instead of treating aggregate text as lap data", () => {
+    expect(() => parseDriverResult('<tr><td>BEN HALVERSON</td><td>16/5:04.787</td></tr>', "BEN HALVERSON")).toThrow("no individual lap times");
+  });
+
   it("exposes selected-driver imports and rejects pages without individual laps", async () => {
     const store = new InMemoryTimingStore();
     const timing = { store, fetch: async (url: string) => ({ url, status: 200, html: driverHtml }) };
