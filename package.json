@@ -1,0 +1,19 @@
+{
+  "name": "rc-racing-line-analysis",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.23.0",
+  "scripts": {
+    "dev": "pnpm --dir api dev",
+    "start": "pnpm --dir client start",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "build": "pnpm run typecheck && pnpm run build:client",
+    "build:client": "pnpm --dir client run build"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "6.0.3",
+    "vitest": "^3.2.0"
+  }
+}

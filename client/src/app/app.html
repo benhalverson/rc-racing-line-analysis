@@ -1,0 +1,59 @@
+<main>
+  <header>
+    <p class="eyebrow">RC RACING LINE ANALYSIS</p>
+    <h1>Local analysis workspace</h1>
+    <p class="lede">
+      Keep race footage on this machine while an analysis moves from draft to review.
+    </p>
+  </header>
+  <section class="panel">
+    <h2>Start an analysis</h2>
+    <label for="video-file">Select local video</label
+    ><input id="video-file" type="file" accept="video/*" (change)="selectVideo($event)" /><label
+      for="video-path"
+      >Local video path</label
+    ><input
+      id="video-path"
+      [value]="videoPath()"
+      (input)="videoPath.set($any($event.target).value)"
+      placeholder="/races/heat-1.mp4"
+    /><label for="car-description">Car description <span>(optional)</span></label
+    ><input
+      id="car-description"
+      [value]="carDescription()"
+      (input)="carDescription.set($any($event.target).value)"
+      placeholder="blue buggy"
+    /><button (click)="createDraft()" [disabled]="!videoPath().trim()">Create draft</button>
+    @if (message()) {
+      <p class="message" role="status">{{ message() }}</p>
+    }
+  </section>
+  @if (analysis(); as current) {
+    <section class="panel status">
+      <div>
+        <p class="eyebrow">CURRENT ANALYSIS</p>
+        <h2>{{ current.videoName }}</h2>
+        <p>{{ current.carDescription || 'No car description yet' }}</p>
+      </div>
+      <span class="state">{{ current.state }}</span>
+      <div class="progress"><div [style.width.%]="current.progress * 100"></div></div>
+      <p class="meta">
+        Phase: {{ current.phase }} · {{ current.progress * 100 | number: '1.0-0' }}% · Checkpoint:
+        {{ current.checkpoint || 'none' }}
+      </p>
+      <div class="actions">
+        @if (
+          current.state === 'draft' || current.state === 'cancelled' || current.state === 'failed'
+        ) {
+          <button (click)="queue()">Queue batch</button>
+        }
+        @if (current.state === 'queued') {
+          <button (click)="start()">Start batch</button>
+        }
+        @if (current.state === 'queued' || current.state === 'running') {
+          <button class="quiet" (click)="cancel()">Cancel</button>
+        }
+      </div>
+    </section>
+  }
+</main>

@@ -1,0 +1,112 @@
+:host {
+  display: block;
+}
+main {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 72px 24px;
+}
+header {
+  margin-bottom: 40px;
+}
+.eyebrow {
+  color: #c6a15b;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+}
+h1 {
+  font-size: clamp(2.5rem, 7vw, 5rem);
+  line-height: 0.95;
+  max-width: 650px;
+  margin: 12px 0 20px;
+}
+h2 {
+  margin-top: 0;
+}
+.lede {
+  color: #a9b0bd;
+  font-size: 1.1rem;
+  max-width: 520px;
+}
+.panel {
+  background: #151922;
+  border: 1px solid #292f3d;
+  border-radius: 14px;
+  padding: 28px;
+  margin-top: 18px;
+  box-shadow: 0 20px 60px #0003;
+}
+label {
+  display: block;
+  margin: 20px 0 8px;
+  color: #dbe0e8;
+}
+label span {
+  color: #7f8999;
+  font-size: 0.85rem;
+}
+input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #343d4c;
+  border-radius: 7px;
+  background: #0e1118;
+  color: #fff;
+  padding: 13px;
+  font: inherit;
+}
+button {
+  border: 0;
+  border-radius: 7px;
+  background: #c6a15b;
+  color: #101218;
+  padding: 12px 18px;
+  font-weight: 700;
+  cursor: pointer;
+}
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+button.quiet {
+  background: transparent;
+  color: #b4bdca;
+  border: 1px solid #343d4c;
+}
+.status {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px 20px;
+}
+.state {
+  align-self: start;
+  border: 1px solid #c6a15b;
+  color: #e4c985;
+  padding: 6px 10px;
+  border-radius: 99px;
+  text-transform: uppercase;
+  font-size: 0.72rem;
+  letter-spacing: 0.1em;
+}
+.progress {
+  grid-column: 1 / -1;
+  height: 8px;
+  background: #292f3d;
+  border-radius: 99px;
+  overflow: hidden;
+}
+.progress div {
+  height: 100%;
+  background: #c6a15b;
+}
+.meta,
+.message {
+  color: #9ca7b5;
+  font-size: 0.88rem;
+}
+.actions {
+  display: flex;
+  gap: 10px;
+}
