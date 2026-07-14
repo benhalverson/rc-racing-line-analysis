@@ -21,14 +21,18 @@ export interface AlternativeLine {
 
 const acceptedCorrectionSetId = 'accepted';
 const stabilizedTrackReferenceId = 'stabilized-track';
+export const observedTrackReference: TrackPoint[] = [{ x: 8, y: 78 }, { x: 20, y: 32 }, { x: 47, y: 18 }, { x: 76, y: 38 }, { x: 89, y: 73 }, { x: 58, y: 86 }, { x: 28, y: 76 }, { x: 8, y: 78 }];
 
 export function compareLine(points: TrackPoint[]): LineComparison {
   const lengths = points.slice(1).map((point, index) => distance(points[index], point));
   const length = lengths.reduce((total, value) => total + value, 0);
   const turns = points.slice(1, -1).map((point, index) => turn(points[index], point, points[index + 2]));
-  const curvature = turns.reduce((total, value, index) => total + Math.abs(value) / (lengths[index] + (lengths[index + 1] ?? 0)), 0);
+  const curvature = turns.reduce((total, value, index) => {
+    const span = lengths[index] + (lengths[index + 1] ?? 0);
+    return span ? total + Math.abs(value) / span : total;
+  }, 0);
   const smoothness = turns.length < 2 ? 0 : turns.slice(1).reduce((total, value, index) => total + Math.abs(value - turns[index]), 0) / (turns.length - 1);
-  const apex = turns.reduce((best, value, index) => Math.abs(value) > Math.abs(turns[best] ?? 0) ? index : best, 0) + 1;
+  const apex = turns.length ? turns.reduce((best, value, index) => Math.abs(value) > Math.abs(turns[best] ?? 0) ? index : best, 0) + 1 : 0;
   return {
     length,
     corner: points.length < 3 ? undefined : { entry: percent(apex - 1, points.length), apex: percent(apex, points.length), exit: percent(apex + 1, points.length) },
