@@ -169,6 +169,17 @@ function validateObservation(input: Omit<CreateFrameObservationInput, "analysisI
 
 function validateArtifactPaths(input: Pick<CreateFrameObservationInput, "observationFilePath" | "qualityArtifactPath">) {
   for (const path of [input.observationFilePath, input.qualityArtifactPath]) {
-    if (!/^(file|local):\/\/.+/.test(path)) throw new Error("artifact paths must reference local files");
+    try {
+      const url = new URL(path);
+      if (
+        !["file:", "local:"].includes(url.protocol) ||
+        !url.pathname ||
+        /(?:^|[/\\])(?:\.\.|%2e%2e)(?:[/\\]|$)/i.test(path)
+      ) {
+        throw new Error();
+      }
+    } catch {
+      throw new Error("artifact paths must reference local files");
+    }
   }
 }

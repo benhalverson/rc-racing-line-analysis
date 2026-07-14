@@ -417,6 +417,15 @@ describe("analysis API", () => {
       observationFilePath: "https://example.test/frame.json",
       qualityArtifactPath: "local://race/quality/1.json",
     })).rejects.toThrow("artifact paths must reference local files");
+    await expect(workflow.recordFrameObservation(draft.id, {
+      segmentId: segment.id,
+      frameNumber: 1,
+      timestampMs: 40,
+      quality: "tracked",
+      box: { x: 10, y: 20, width: 30, height: 40 },
+      observationFilePath: "local://race/frames/../outside.json",
+      qualityArtifactPath: "local://race/quality/1.json",
+    })).rejects.toThrow("artifact paths must reference local files");
     await expect(workflow.rebox(draft.id, {
       frameNumber: 2,
       timestampMs: 80,

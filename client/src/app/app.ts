@@ -179,7 +179,10 @@ export class App {
       });
   }
   private loadTracking(id: string) {
-    this.api.tracking(id).subscribe({ next: (tracking) => this.tracking.set(tracking) });
+    this.api.tracking(id).subscribe({
+      next: (tracking) => this.tracking.set(tracking),
+      error: () => this.message.set('Unable to load tracking status.'),
+    });
   }
 }
 
