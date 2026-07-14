@@ -22,15 +22,25 @@ describe("LiveRC timing adapter", () => {
 
   it("extracts the clean driver name and View Laps URL from LiveRC result rows", () => {
     const html = '<tr><td>2</td><td>2</td><td>BEN HALVERSON</td><td><a href="?p=view_driver_laps&id=2">View Laps</a></td></tr>';
-    expect(parseDrivers(html)).toEqual([{ name: "BEN HALVERSON", normalizedName: "ben halverson", url: "?p=view_driver_laps&id=2" }]);
+    expect(parseDrivers(html)).toEqual([{ name: "BEN HALVERSON", normalizedName: "ben halverson" }]);
   });
 
   it("does not expose a placeholder hash as a driver detail URL", () => {
-    expect(parseDrivers('<tr><td>4</td><td>4 BEN HALVERSON</td><td><a href="#">View Laps</a></td></tr>')).toEqual([{ name: "BEN HALVERSON", normalizedName: "ben halverson" }]);
+    expect(parseDrivers('<tr><td>4</td><td>4 BEN HALVERSON</td><td><a href="#" data-driver-id="566775">View Laps</a></td></tr>')).toEqual([{ name: "BEN HALVERSON", normalizedName: "ben halverson", driverId: "566775" }]);
   });
 
   it("rejects a race summary instead of treating aggregate text as lap data", () => {
     expect(() => parseDriverResult('<tr><td>BEN HALVERSON</td><td>16/5:04.787</td></tr>', "BEN HALVERSON")).toThrow("no individual lap times");
+  });
+
+  it("parses individual lap rows from the LiveRC View Laps detail table", () => {
+    const html = '<h1>BEN HALVERSON</h1><table><tr><th>#</th><th>Time</th><th>Pace</th><th>Pos</th></tr><tr><td>1</td><td>28.58</td><td>11/5:14.385</td><td>4th</td></tr><tr><td>2</td><td>22.966</td><td>12/5:09.279</td><td>4th</td></tr></table>';
+    expect(parseDriverResult(html, "BEN HALVERSON")).toMatchObject({ driverName: "BEN HALVERSON", laps: [{ lapNumber: 1, lapTimeSeconds: 28.58, statusText: "4th" }, { lapNumber: 2, lapTimeSeconds: 22.966, statusText: "4th" }] });
+  });
+
+  it("parses LiveRC's embedded racerLaps data from the race result page", () => {
+    const html = `<script>racerLaps[566775] = { 'driverName' : 'BEN HALVERSON', 'laps' : [ { 'lapNum' : '1', 'pos' : '4', 'time' : '28.58', 'pace' : '11/5:14.385' }, { 'lapNum' : '2', 'pos' : '4', 'time' : '22.966', 'pace' : '12/5:09.279' } ] };</script>`;
+    expect(parseDriverResult(html, "BEN HALVERSON")).toMatchObject({ driverId: "566775", laps: [{ lapNumber: 1, lapTimeSeconds: 28.58 }, { lapNumber: 2, lapTimeSeconds: 22.966 }] });
   });
 
   it("exposes selected-driver imports and rejects pages without individual laps", async () => {

@@ -94,33 +94,45 @@ export function parseDrivers(html: string) {
     const row = match[1];
     const plain = text(row);
     const name = plain.match(/\b\d+\s+\d+\s+(.+?)\s+View Laps\b/i)?.[1]?.trim();
-    const lapLink = row.match(/<a\b[^>]*href=["']([^"']+)["'][^>]*>[\s\S]*?View Laps[\s\S]*?<\/a>/i)?.[1];
+    const driverId = row.match(/data-driver-id=["']([^"']+)["']/i)?.[1];
     if (!name) return [];
-    return [{ name, normalizedName: normalizeDriverName(name), ...(lapLink && lapLink !== "#" ? { url: lapLink } : {}) }];
+    return [{ name, normalizedName: normalizeDriverName(name), ...(driverId ? { driverId } : {}) }];
   });
 }
 
 export function parseDriverResult(html: string, driverName: string): { driverName: string; driverId: string | null; laps: TimingLap[] } {
   const wanted = normalizeDriverName(driverName);
   const rows = [...html.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi)].map((match) => match[1]);
-  const row = rows.find((candidate) => normalizeDriverName(text(candidate)).includes(wanted));
-  if (!row) throw new Error(`driver result not found for ${driverName}`);
-  const cells = [...row.matchAll(/<t[dh]\b[^>]*>([\s\S]*?)<\/t[dh]>/gi)].map((match) => text(match[1])).filter(Boolean);
-  const foundName = cells.find((cell) => normalizeDriverName(cell) === wanted) ?? driverName;
-  const laps = [...html.matchAll(/\blap\s*(\d+)\s*[:=-]\s*(\d+(?:\.\d+)?)\s*(?:s|sec)?\b/gi)].map((match) => ({
+  const pageText = normalizeDriverName(text(html));
+  if (!pageText.includes(wanted)) throw new Error(`driver result not found for ${driverName}`);
+  const driverRow = rows.find((candidate) => normalizeDriverName(text(candidate)).includes(wanted));
+  const driverCells = driverRow ? [...driverRow.matchAll(/<t[dh]\b[^>]*>([\s\S]*?)<\/t[dh]>/gi)].map((match) => text(match[1])).filter(Boolean) : [];
+  const foundName = driverCells.find((cell) => normalizeDriverName(cell) === wanted) ?? driverName;
+  const racer = [...html.matchAll(/racerLaps\[(\d+)\]\s*=\s*\{([\s\S]*?)\};/gi)].map((match) => ({ id: match[1], body: match[2] })).find((candidate) => new RegExp(`'driverName'\\s*:\\s*'${escapeRegExp(foundName)}'`, "i").test(candidate.body));
+  const embeddedLaps = racer ? [...racer.body.matchAll(/'lapNum'\s*:\s*'?(\d+)'?[\s\S]*?'pos'\s*:\s*'?(\d+)'?[\s\S]*?'time'\s*:\s*'?(\d+(?:\.\d+)?)'?\s*[\s\S]*?'pace'\s*:\s*'([^']*)'/gi)].filter((match) => Number(match[1]) > 0 && Number(match[3]) > 0).map((match) => ({ lapNumber: Number(match[1]), lapTimeSeconds: Number(match[3]), lapTimeText: match[3], valid: true, statusText: `${match[4]} · ${match[2]}th` })) : [];
+  const tableLaps = rows.flatMap((row) => {
+    const cells = [...row.matchAll(/<t[dh]\b[^>]*>([\s\S]*?)<\/t[dh]>/gi)].map((match) => text(match[1])).filter(Boolean);
+    if (cells.length < 3 || !/^\d+$/.test(cells[0]) || !/^\d+(?:\.\d+)?$/.test(cells[1]) || !/^\d+\/\d+:.+/.test(cells[2])) return [];
+    return [{ lapNumber: Number(cells[0]), lapTimeSeconds: Number(cells[1]), lapTimeText: cells[1], valid: true, statusText: cells[3] ?? null }];
+  });
+  const explicitLaps = [...html.matchAll(/\blap\s*(\d+)\s*[:=-]\s*(\d+(?:\.\d+)?)\s*(?:s|sec)?\b/gi)].map((match) => ({
     lapNumber: Number(match[1]), lapTimeSeconds: Number(match[2]), lapTimeText: match[2], valid: true, statusText: null,
   }));
+  const laps = embeddedLaps.length > 0 ? embeddedLaps : tableLaps.length > 0 ? tableLaps : explicitLaps;
   if (laps.length === 0) throw new Error("selected driver result has no individual lap times");
-  return { driverName: foundName, driverId: null, laps };
+  return { driverName: foundName, driverId: racer?.id ?? null, laps };
 }
 
-export async function importTiming(input: Omit<TimingImport, "id" | "source" | "fetchedAt" | "parserVersion" | "sourceHash" | "driverName" | "normalizedDriverName" | "driverId" | "laps"> & { driverName: string; driverUrl?: string }, fetcher: TimingFetcher, store: TimingStore) {
-  const { driverUrl, ...timingInput } = input;
-  const page = await fetcher(driverUrl ? new URL(driverUrl, input.raceUrl).toString() : input.raceUrl);
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+export async function importTiming(input: Omit<TimingImport, "id" | "source" | "fetchedAt" | "parserVersion" | "sourceHash" | "driverName" | "normalizedDriverName" | "driverId" | "laps"> & { driverName: string; driverId?: string }, fetcher: TimingFetcher, store: TimingStore) {
+  const page = await fetcher(input.raceUrl);
   if (page.status < 200 || page.status >= 300) throw new Error(`LiveRC returned HTTP ${page.status}`);
   const result = parseDriverResult(page.html, input.driverName);
   const value: TimingImport = {
-    ...timingInput, id: randomUUID(), source: "liverc", fetchedAt: new Date().toISOString(), parserVersion: "liverc-html-v1",
+    ...input, id: randomUUID(), source: "liverc", fetchedAt: new Date().toISOString(), parserVersion: "liverc-html-v1",
     sourceHash: createHash("sha256").update(page.html).digest("hex"), driverName: result.driverName,
     normalizedDriverName: normalizeDriverName(result.driverName), driverId: result.driverId, laps: result.laps,
   };
