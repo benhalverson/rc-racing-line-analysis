@@ -28,6 +28,7 @@ describe("racing line review contract", () => {
     const corrected = correctLapCrossing(createRacingLineReview(timing), 2, 47);
     expect(corrected.laps[1]).toMatchObject({ videoStartSeconds: 20, videoEndSeconds: 47, crossingSeconds: 47 });
     expect(corrected.laps[2].videoStartSeconds).toBe(47);
-    expect(assignLiveRcLap(corrected, 2, 3).laps[1].liveRcLap.lapNumber).toBe(3);
+    const assigned = assignLiveRcLap(corrected, 2, 3).laps[1];
+    expect(assigned).toMatchObject({ crossingLapNumber: 2, liveRcLap: { lapNumber: 3 } });
   });
 });

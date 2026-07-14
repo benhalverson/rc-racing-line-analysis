@@ -3,6 +3,7 @@ import type { TimingImport, TimingLap } from "./timing-contract";
 export type EvidenceQuality = "measured" | "uncertain" | "invalid";
 
 export interface ReviewLap {
+  crossingLapNumber: number;
   crossingSeconds: number;
   evidenceQuality: EvidenceQuality;
   liveRcLap: TimingLap;
@@ -27,6 +28,7 @@ export function createRacingLineReview(timing: TimingImport): RacingLineReview {
       const videoStartSeconds = crossingSeconds;
       crossingSeconds += liveRcLap.lapTimeSeconds ?? 0;
       return {
+        crossingLapNumber: liveRcLap.lapNumber,
         crossingSeconds,
         evidenceQuality: liveRcLap.valid === false ? "invalid" : liveRcLap.valid === true ? "measured" : "uncertain",
         liveRcLap,
@@ -38,7 +40,7 @@ export function createRacingLineReview(timing: TimingImport): RacingLineReview {
 }
 
 export function correctLapCrossing(review: RacingLineReview, lapNumber: number, crossingSeconds: number): RacingLineReview {
-  const index = review.laps.findIndex((lap) => lap.liveRcLap.lapNumber === lapNumber);
+  const index = review.laps.findIndex((lap) => lap.crossingLapNumber === lapNumber);
   if (index < 0 || !Number.isFinite(crossingSeconds) || crossingSeconds < 0) return review;
   const previousCrossing = index === 0 ? 0 : review.laps[index - 1].crossingSeconds;
   const nextCrossing = review.laps[index + 1]?.crossingSeconds;
@@ -58,6 +60,6 @@ export function assignLiveRcLap(review: RacingLineReview, crossingLapNumber: num
   if (!replacement) return review;
   return {
     ...review,
-    laps: review.laps.map((lap) => lap.liveRcLap.lapNumber === crossingLapNumber ? { ...lap, liveRcLap: replacement } : lap),
+    laps: review.laps.map((lap) => lap.crossingLapNumber === crossingLapNumber ? { ...lap, liveRcLap: replacement } : lap),
   };
 }

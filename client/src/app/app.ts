@@ -5,6 +5,7 @@ import type { Subscription } from 'rxjs';
 import { AnalysisApi, type Analysis, type AnalysisConnectionState } from './app/analysis-api';
 import { TimingApi, type TimingDriver, type TimingEvent, type TimingImportSummary, type TimingRace, type TimingTrack } from './app/timing-api';
 import { buildTimingImportRequest, confirmTimingSelection, emptyTimingSelection, selectTimingDriver, selectTimingEvent, selectTimingRace, selectTimingTrack, timingDriverOptionKey, timingImportReadiness, timingSelectionIsConfirmed, type TimingSelection } from './app/timing-selection';
+import { assignLiveRcLap, correctLapCrossing, createRacingLineReview, type RacingLineReview } from '../../../shared/review-contract';
 @Component({
   selector: 'app-root',
   imports: [DecimalPipe],
@@ -29,6 +30,9 @@ export class App {
   readonly timingError = signal('');
   readonly trackQuery = signal('');
   readonly savedImports = signal<TimingImportSummary[]>([]);
+  readonly review = signal<RacingLineReview | undefined>(undefined);
+  readonly selectedReviewLap = signal<number | undefined>(undefined);
+  readonly crossingTime = signal('');
   selectVideo(event: Event) {
     const file = (event.target as HTMLInputElement).files?.[0];
     if (file) this.videoPath.set(`local://${file.name}`);
@@ -100,21 +104,60 @@ export class App {
     const request = buildTimingImportRequest(selection);
     if (!request || !timingSelectionIsConfirmed(selection)) { this.timingError.set(timingImportReadiness(selection) ?? 'Review and confirm the selected result first.'); return; }
     this.timingError.set('');
-    this.timingApi.import(request).subscribe({ next: (value) => { if (this.isCurrentTimingSelection(selection)) { this.timingSelection.update((current) => ({ ...current, importedResult: value })); this.message.set(`Imported ${value.laps.length} laps for ${value.driverName}.`); } }, error: (error: { error?: { error?: string } }) => { if (this.isCurrentTimingSelection(selection)) this.timingError.set(error.error?.error ?? 'Unable to import timing.'); } });
+    this.timingApi.import(request).subscribe({ next: (value) => { if (this.isCurrentTimingSelection(selection)) { this.timingSelection.update((current) => ({ ...current, importedResult: value })); this.openReview(value); this.message.set(`Imported ${value.laps.length} laps for ${value.driverName}.`); } }, error: (error: { error?: { error?: string } }) => { if (this.isCurrentTimingSelection(selection)) this.timingError.set(error.error?.error ?? 'Unable to import timing.'); } });
   }
   loadSavedImports() { this.timingApi.savedImports().subscribe({ next: (value) => this.savedImports.set(value.imports), error: (error) => this.timingError.set(timingError(error, 'Unable to load saved timing imports.')) }); }
   reopenImport(id: string) {
     this.timingApi.loadImport(id).subscribe({
-      next: (value) => this.timingSelection.set({
-        track: { host: value.trackHost, name: value.trackName, url: value.trackUrl },
-        event: { name: value.eventName, url: value.eventUrl },
-        race: { id: value.raceId ?? 'persisted', label: value.raceLabel, url: value.raceUrl },
-        classLabel: value.classLabel,
-        driver: { name: value.driverName, normalizedName: value.normalizedDriverName, ...(value.driverId ? { driverId: value.driverId } : {}) },
-        importedResult: value,
-      }),
+      next: (value) => {
+        this.timingSelection.set({
+          track: { host: value.trackHost, name: value.trackName, url: value.trackUrl },
+          event: { name: value.eventName, url: value.eventUrl },
+          race: { id: value.raceId ?? 'persisted', label: value.raceLabel, url: value.raceUrl },
+          classLabel: value.classLabel,
+          driver: { name: value.driverName, normalizedName: value.normalizedDriverName, ...(value.driverId ? { driverId: value.driverId } : {}) },
+          importedResult: value,
+        });
+        this.openReview(value);
+      },
       error: (error) => this.timingError.set(timingError(error, 'Unable to reopen saved timing import.')),
     });
+  }
+  openReview(timing: NonNullable<TimingSelection['importedResult']>) {
+    const review = createRacingLineReview(timing);
+    this.review.set(review);
+    this.selectedReviewLap.set(review.laps[0]?.crossingLapNumber);
+    this.crossingTime.set(review.laps[0]?.crossingSeconds.toFixed(3) ?? '');
+  }
+  markStartFinish(event: MouseEvent) {
+    const svg = event.currentTarget as SVGElement;
+    const bounds = svg.getBoundingClientRect();
+    const x = (event.clientX - bounds.left) * 700 / bounds.width;
+    const y = (event.clientY - bounds.top) * 300 / bounds.height;
+    this.review.update((review) => review ? { ...review, startFinish: { x, y } } : review);
+  }
+  selectLap(lapNumber: number) {
+    const lap = this.review()?.laps.find((value) => value.crossingLapNumber === lapNumber);
+    this.selectedReviewLap.set(lapNumber);
+    this.crossingTime.set(lap?.crossingSeconds.toFixed(3) ?? '');
+  }
+  correctCrossing() {
+    const lapNumber = this.selectedReviewLap();
+    if (lapNumber === undefined) return;
+    const seconds = Number(this.crossingTime());
+    this.review.update((review) => review ? correctLapCrossing(review, lapNumber, seconds) : review);
+  }
+  assignLap(liveRcLapNumber: number) {
+    const lapNumber = this.selectedReviewLap();
+    if (lapNumber === undefined) return;
+    this.review.update((review) => review ? assignLiveRcLap(review, lapNumber, liveRcLapNumber) : review);
+  }
+  assignLapFromEvent(event: Event) {
+    this.assignLap(Number((event.target as HTMLSelectElement).value));
+  }
+  formatVideoTime(seconds: number) {
+    const minutes = Math.floor(seconds / 60);
+    return `${minutes}:${(seconds % 60).toFixed(3).padStart(6, '0')}`;
   }
   private isCurrentTimingSelection(selection: TimingSelection) {
     const current = this.timingSelection();
