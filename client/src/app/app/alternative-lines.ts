@@ -19,11 +19,14 @@ export interface AlternativeLine {
   versions: { version: number; points: TrackPoint[]; comparison: LineComparison }[];
 }
 
+const acceptedCorrectionSetId = 'accepted';
+const stabilizedTrackReferenceId = 'stabilized-track';
+
 export function compareLine(points: TrackPoint[]): LineComparison {
   const lengths = points.slice(1).map((point, index) => distance(points[index], point));
   const length = lengths.reduce((total, value) => total + value, 0);
   const turns = points.slice(1, -1).map((point, index) => turn(points[index], point, points[index + 2]));
-  const curvature = turns.reduce((total, value, index) => total + Math.abs(value) / (lengths[index] + lengths[index + 1]), 0);
+  const curvature = turns.reduce((total, value, index) => total + Math.abs(value) / (lengths[index] + (lengths[index + 1] ?? 0)), 0);
   const smoothness = turns.length < 2 ? 0 : turns.slice(1).reduce((total, value, index) => total + Math.abs(value - turns[index]), 0) / (turns.length - 1);
   const apex = turns.reduce((best, value, index) => Math.abs(value) > Math.abs(turns[best] ?? 0) ? index : best, 0) + 1;
   return {
@@ -38,7 +41,7 @@ export function compareLine(points: TrackPoint[]): LineComparison {
 export function reviseAlternative(lines: AlternativeLine[], analysisId: string, name: string, points: TrackPoint[]): AlternativeLine[] {
   const comparison = compareLine(points);
   const index = lines.findIndex((line) => line.analysisId === analysisId && line.name === name);
-  if (index < 0) return [...lines, { analysisId, correctionSetId: 'accepted', trackReferenceId: 'stabilized-track', name, versions: [{ version: 1, points, comparison }] }];
+  if (index < 0) return [...lines, { analysisId, correctionSetId: acceptedCorrectionSetId, trackReferenceId: stabilizedTrackReferenceId, name, versions: [{ version: 1, points, comparison }] }];
   const line = lines[index];
   const revised = { ...line, versions: [...line.versions, { version: line.versions.length + 1, points, comparison }] };
   return [...lines.slice(0, index), revised, ...lines.slice(index + 1)];

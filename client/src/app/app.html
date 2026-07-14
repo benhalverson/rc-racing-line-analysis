@@ -76,9 +76,9 @@
         <div class="section-heading"><div><p class="eyebrow">HYPOTHETICAL LINES</p><h2>Alternative-line comparison</h2></div><span class="step">NO LAP-TIME PREDICTIONS</span></div>
         <p class="meta">Draw on the stabilized track reference. Every alternative is linked to analysis {{ current.id }}, the accepted correction set, and this track reference.</p>
         <svg class="track-view" viewBox="0 0 100 100" role="img" aria-label="Stabilized track view; click to draw an alternative line" (click)="addAlternativePoint($event)">
-          <polyline class="observed-line" points="8,78 20,32 47,18 76,38 89,73 58,86 28,76 8,78" />
+          <polyline class="observed-line" [attr.points]="linePoints(observedLine)" />
           @for (point of drawing(); track $index) { <circle class="drawing-point" [attr.cx]="point.x" [attr.cy]="point.y" r="1.7" /> }
-          @if (drawing().length > 1) { <polyline class="drawing-line" [attr.points]="drawing().map((point) => point.x + ',' + point.y).join(' ')" /> }
+          @if (drawing().length > 1) { <polyline class="drawing-line" [attr.points]="linePoints(drawing())" /> }
         </svg>
         <p class="meta">Gold: observed line · Blue: your hypothetical alternative · {{ drawing().length }} points drawn</p>
         <p class="comparison observed"><strong>Observed</strong><span>Length {{ observedComparison.length | number: '1.1-1' }} units</span><span>Curvature {{ observedComparison.curvature | number: '1.2-2' }}</span><span>Smoothness {{ observedComparison.smoothness | number: '1.2-2' }}</span><span>Uncertainty ±{{ observedComparison.uncertainty | number: '1.1-1' }} units</span>@if (observedComparison.corner; as corner) { <span>Corner: entry {{ corner.entry }}% · apex {{ corner.apex }}% · exit {{ corner.exit }}%</span> }</p>
@@ -86,7 +86,7 @@
         <div class="actions"><button type="button" class="quiet" (click)="undoAlternativePoint()" [disabled]="!drawing().length">Undo point</button><button type="button" class="quiet" (click)="clearAlternative()" [disabled]="!drawing().length">Clear</button><button type="button" (click)="saveAlternative()" [disabled]="drawing().length < 2 || !alternativeName().trim()">Save version</button></div>
         @for (line of alternativesForCurrentAnalysis(); track line.name) {
           <article class="alternative-card">
-            <h3>{{ line.name }} <span>Hypothetical · {{ line.versions.length }} version{{ line.versions.length === 1 ? '' : 's' }}</span></h3>
+            <h3>{{ line.name }} <span>Hypothetical. {{ line.versions.length }} saved version{{ line.versions.length === 1 ? '' : 's' }}.</span></h3>
             @for (version of line.versions; track version.version) {
               <div class="comparison"><strong>v{{ version.version }}</strong><span>Length {{ version.comparison.length | number: '1.1-1' }} units</span><span>Curvature {{ version.comparison.curvature | number: '1.2-2' }}</span><span>Smoothness {{ version.comparison.smoothness | number: '1.2-2' }}</span><span>Uncertainty ±{{ version.comparison.uncertainty | number: '1.1-1' }} units</span>@if (version.comparison.corner; as corner) { <span>Corner: entry {{ corner.entry }}% · apex {{ corner.apex }}% · exit {{ corner.exit }}%</span> }</div>
             }

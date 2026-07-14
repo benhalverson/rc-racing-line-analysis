@@ -143,6 +143,7 @@ export class App {
     const id = this.analysis()?.id;
     return id ? this.alternativeLines().filter((line) => line.analysisId === id) : [];
   }
+  linePoints(points: TrackPoint[]) { return points.map((point) => `${point.x},${point.y}`).join(' '); }
   private isCurrentTimingSelection(selection: TimingSelection) {
     const current = this.timingSelection();
     return current.track === selection.track && current.event === selection.event && current.race === selection.race && current.driver === selection.driver && current.classLabel === selection.classLabel;
