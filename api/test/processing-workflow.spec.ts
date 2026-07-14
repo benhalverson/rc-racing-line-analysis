@@ -95,7 +95,7 @@ describe('analysis processing workflow', () => {
   it('persists stabilization artifacts through the calibration checkpoint', async () => {
     let current = { ...baseAnalysis };
     const artifacts = { markerObservations: [], transforms: [] };
-    const saveArtifacts = vi.fn(async () => undefined);
+    const upsertArtifacts = vi.fn(async () => undefined);
     const processing = {
       get: async () => current,
       report: async (_id: string, update: ProcessingUpdate) => {
@@ -115,9 +115,9 @@ describe('analysis processing workflow', () => {
       step as never,
       processing,
       () => Promise.resolve(),
-      { provider: { stabilize: vi.fn(async () => artifacts) }, saveArtifacts },
+      { provider: { stabilize: vi.fn(async () => artifacts) }, upsertArtifacts },
     );
 
-    expect(saveArtifacts).toHaveBeenCalledWith('analysis-1', artifacts);
+    expect(upsertArtifacts).toHaveBeenCalledWith('analysis-1', artifacts);
   });
 });

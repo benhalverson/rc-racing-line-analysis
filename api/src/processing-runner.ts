@@ -29,7 +29,7 @@ export interface AnalysisProcessingService {
 
 export type StabilizationProcessing = {
   provider: MarkerStabilizationProvider;
-  saveArtifacts: (analysisId: string, artifacts: StabilizationArtifacts) => Promise<void>;
+  upsertArtifacts: (analysisId: string, artifacts: StabilizationArtifacts) => Promise<void>;
 };
 
 export async function executeAnalysisProcessing(
@@ -53,7 +53,7 @@ export async function executeAnalysisProcessing(
           return current;
         }
         if (phase.name === 'calibration' && stabilization) {
-          await stabilization.saveArtifacts(id, await stabilization.provider.stabilize());
+          await stabilization.upsertArtifacts(id, await stabilization.provider.stabilize());
         }
         const updated = await processing.report(id, phase);
         await publish(updated);
