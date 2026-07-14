@@ -65,19 +65,27 @@ export class App {
   }
   searchTracks() {
     this.timingError.set('');
-    this.timingApi.tracks(this.trackQuery()).subscribe({ next: (value) => this.tracks.set(value.tracks), error: () => this.timingError.set('Unable to load LiveRC tracks.') });
+    this.timingApi.tracks(this.trackQuery()).subscribe({ next: (value) => this.tracks.set(value.tracks), error: (error) => this.timingError.set(timingError(error, 'Unable to load LiveRC tracks.')) });
   }
-  chooseTrack(track: TimingTrack) {
-    this.selectedTrack.set(track); this.selectedEvent.set(undefined); this.selectedRace.set(undefined); this.selectedDriver.set(undefined); this.events.set([]); this.races.set([]); this.drivers.set([]);
-    this.timingApi.events(track.url).subscribe({ next: (value) => this.events.set(value.events), error: () => this.timingError.set('Unable to load archived events.') });
+  chooseTrack(track: TimingTrack | undefined) {
+    if (!track) return;
+    this.selectedTrack.set(track); this.selectedEvent.set(undefined); this.selectedRace.set(undefined); this.selectedDriver.set(undefined); this.events.set([]); this.races.set([]); this.drivers.set([]); this.classLabel.set(''); this.timingImport.set(undefined); this.timingError.set('');
+    const trackUrl = track.url?.trim();
+    if (!trackUrl) {
+      this.timingError.set('Unable to load archived events: no track URL was selected.');
+      return;
+    }
+    this.timingApi.events(trackUrl).subscribe({ next: (value) => this.events.set(value.events), error: (error) => this.timingError.set(timingError(error, 'Unable to load archived events.')) });
   }
-  chooseEvent(event: TimingEvent) {
+  chooseEvent(event: TimingEvent | undefined) {
+    if (!event) return;
     this.selectedEvent.set(event); this.selectedRace.set(undefined); this.selectedDriver.set(undefined); this.races.set([]); this.drivers.set([]);
-    this.timingApi.races(event.url).subscribe({ next: (value) => this.races.set(value.races), error: () => this.timingError.set('Unable to load races for this event.') });
+    this.timingApi.races(event.url).subscribe({ next: (value) => this.races.set(value.races), error: (error) => this.timingError.set(timingError(error, 'Unable to load races for this event.')) });
   }
-  chooseRace(race: TimingRace) {
+  chooseRace(race: TimingRace | undefined) {
+    if (!race) return;
     this.selectedRace.set(race); this.classLabel.set(race.label); this.selectedDriver.set(undefined); this.drivers.set([]);
-    this.timingApi.drivers(race.url).subscribe({ next: (value) => this.drivers.set(value.drivers), error: () => this.timingError.set('Unable to load drivers for this race.') });
+    this.timingApi.drivers(race.url).subscribe({ next: (value) => this.drivers.set(value.drivers), error: (error) => this.timingError.set(timingError(error, 'Unable to load drivers for this race.')) });
   }
   chooseDriver(driver: TimingDriver) { this.selectedDriver.set(driver); }
   importSelectedTiming() {
@@ -107,4 +115,16 @@ export class App {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({ next: (message) => this.analysis.set(message.analysis) });
   }
+}
+
+function timingError(error: unknown, fallback: string) {
+  if (typeof error === 'object' && error !== null && 'error' in error) {
+    const body = (error as { error?: unknown }).error;
+    if (typeof body === 'string' && body.trim()) return body;
+    if (typeof body === 'object' && body !== null && 'error' in body) {
+      const detail = (body as { error?: unknown }).error;
+      if (typeof detail === 'string' && detail.trim()) return detail;
+    }
+  }
+  return fallback;
 }

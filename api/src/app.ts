@@ -3,7 +3,7 @@ import { z } from "zod";
 import { errorMessage } from "./errors.js";
 import type { AnalysisProgressRoom } from "./progress-room.js";
 import type { AnalysisWorkflow } from "./workflow.js";
-import { importTiming, parseDrivers, parseEvents, parseRaces, parseTrackList, type TimingFetcher, type TimingStore } from "./timing";
+import { importTiming, normalizeTrackUrl, parseDrivers, parseEvents, parseRaces, parseTrackList, type TimingFetcher, type TimingStore } from "./timing";
 
 export interface AnalysisRuntime {
   workflow: {
@@ -75,7 +75,7 @@ export function createApp(workflow: AnalysisWorkflow, runtime?: AnalysisRuntime,
   app.get("/timing/events", async (c) => {
     if (!timing) return c.json({ error: "timing import is unavailable" }, 503);
     try {
-      const trackUrl = requiredQuery(c, "trackUrl");
+      const trackUrl = normalizeTrackUrl(requiredQuery(c, "trackUrl"));
       const eventsUrl = new URL("/events/", trackUrl).toString();
       const page = await timing.fetch(eventsUrl);
       if (page.status < 200 || page.status >= 300) return c.json({ error: `LiveRC returned HTTP ${page.status}` }, 502);

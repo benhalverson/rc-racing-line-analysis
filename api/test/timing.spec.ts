@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createApp } from "../src/app";
 import { InMemoryAnalysisStore } from "../src/store";
-import { InMemoryTimingStore, normalizeDriverName, parseDriverResult, parseDrivers, parseEvents, parseRaces, parseTrackList } from "../src/timing";
+import { InMemoryTimingStore, normalizeDriverName, normalizeTrackUrl, parseDriverResult, parseDrivers, parseEvents, parseRaces, parseTrackList } from "../src/timing";
 import { AnalysisWorkflow } from "../src/workflow";
 
 const tracksHtml = '<a href="https://rcra.liverc.com/">RCRA</a><a href="https://other.liverc.com/">Other Track</a>';
@@ -11,7 +11,7 @@ const driverHtml = '<table><tr><td>Alex Racer</td>  <td>1</td></tr></table><div>
 describe("LiveRC timing adapter", () => {
   it("discovers tracks, events, and race-result links without slugifying names", () => {
     expect(parseTrackList(tracksHtml).map((track) => track.host)).toEqual(["rcra.liverc.com", "other.liverc.com"]);
-    expect(parseEvents('<a href="https://live.liverc.com/events/calendar/">Calendar</a><a href="/results/?id=44&p=view_event">2026 Nationals</a><a href="/results/?id=44&p=view_event">Duplicate</a><a href="/events/">Past Events</a>', "https://rcra.liverc.com/")).toEqual([{ name: "2026 Nationals", url: "https://rcra.liverc.com/results/?id=44&p=view_event" }]);
+    expect(parseEvents('<a href="https://live.liverc.com/events/calendar/">Calendar</a><a href="/results/?id=44&p=view_event">2026 Nationals</a><a href="/results/?p=view_event&id=44">Duplicate</a><a href="https://other.liverc.com/results/?id=99&p=view_event">Other</a><a href="/events/">Past Events</a><a href="/results/?id=0&p=view_event">Placeholder</a>', "https://rcra.liverc.com/")).toEqual([{ name: "2026 Nationals", url: "https://rcra.liverc.com/results/?id=44&p=view_event" }]);
     expect(parseRaces(raceHtml, "https://rcra.liverc.com/results/")[0]).toMatchObject({ id: "44", label: "Buggy Heat 2/7" });
   });
 
@@ -74,5 +74,16 @@ describe("LiveRC timing adapter", () => {
     const response = await app.request("/timing/events?trackUrl=https%3A%2F%2Fnorcalhobbies.liverc.com%2F");
     expect(requestedUrl).toBe("https://norcalhobbies.liverc.com/events/");
     expect(await response.json()).toEqual({ events: [{ name: "2026 Nationals", url: "https://norcalhobbies.liverc.com/results/?id=44&p=view_event" }] });
+  });
+
+  it("normalizes a valid track URL before loading its archive", async () => {
+    expect(normalizeTrackUrl(" HTTPS://NorCalHobbies.LiveRC.com/some/path?stale=1 ")).toBe("https://norcalhobbies.liverc.com/");
+  });
+
+  it.each(["", "not a url", "https://example.com/", "https://live.liverc.com/"]) ("rejects invalid track URL %j", async (trackUrl) => {
+    const app = createApp(new AnalysisWorkflow(new InMemoryAnalysisStore()), undefined, { store: new InMemoryTimingStore(), fetch: async (url: string) => ({ url, status: 200, html: "" }) });
+    const response = await app.request(`/timing/events${trackUrl ? `?trackUrl=${encodeURIComponent(trackUrl)}` : ""}`);
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: trackUrl ? "trackUrl must be a valid LiveRC track URL" : "trackUrl is required" });
   });
 });

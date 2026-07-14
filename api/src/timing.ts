@@ -39,6 +39,19 @@ export type TimingStore = {
   getTimingImport(id: string): Promise<TimingImport | undefined>;
 };
 
+export function normalizeTrackUrl(value: string) {
+  let url: URL;
+  try {
+    url = new URL(value.trim());
+  } catch {
+    throw new Error("trackUrl must be a valid LiveRC track URL");
+  }
+  if (!/^https?:$/.test(url.protocol) || !url.hostname.endsWith(".liverc.com") || url.hostname === "live.liverc.com" || url.username || url.password || url.port) {
+    throw new Error("trackUrl must be a valid LiveRC track URL");
+  }
+  return `${url.origin}/`;
+}
+
 export class InMemoryTimingStore implements TimingStore {
   private readonly imports = new Map<string, TimingImport>();
 
@@ -66,7 +79,10 @@ export function parseTrackList(html: string, sourceUrl = "https://live.liverc.co
   return links(html, sourceUrl).filter((link) => {
     const url = new URL(link.url);
     return url.hostname.endsWith(".liverc.com") && url.hostname !== source.hostname;
-  }).map((link) => ({ host: new URL(link.url).hostname, name: link.label, url: link.url }));
+  }).map((link) => {
+    const url = normalizeTrackUrl(link.url);
+    return { host: new URL(url).hostname, name: link.label, url };
+  });
 }
 
 export function parseEvents(html: string, sourceUrl: string) {
@@ -74,10 +90,10 @@ export function parseEvents(html: string, sourceUrl: string) {
   const seen = new Set<string>();
   return links(html, sourceUrl).flatMap((link) => {
     const url = new URL(link.url);
-    const isEventPage = /\/events?\//i.test(url.pathname) && url.searchParams.has("id");
-    const isEventResult = url.pathname === "/results/" && url.searchParams.get("p") === "view_event" && url.searchParams.has("id");
-    if (url.hostname !== source.hostname || (!isEventPage && !isEventResult) || seen.has(url.toString())) return [];
-    seen.add(url.toString());
+    const eventId = url.searchParams.get("id")?.trim();
+    const isEventResult = url.hostname === source.hostname && url.pathname === "/results/" && url.searchParams.get("p") === "view_event" && !!eventId && !["0", "null", "undefined"].includes(eventId.toLowerCase());
+    if (!isEventResult || seen.has(eventId)) return [];
+    seen.add(eventId);
     return [{ name: link.label, url: url.toString() }];
   });
 }
