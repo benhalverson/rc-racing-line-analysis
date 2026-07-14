@@ -4,7 +4,7 @@ import { buildTimingImportRequest, emptyTimingSelection, selectTimingEvent, sele
 
 const track: TimingTrack = { host: 'track.liverc.com', name: 'Track', url: 'https://track.liverc.com/' };
 const event: TimingEvent = { name: 'Event', url: 'https://track.liverc.com/event' };
-const race: TimingRace = { id: null, label: 'A Main', url: 'https://track.liverc.com/race' };
+const race: TimingRace = { id: '1', label: 'A Main', url: 'https://track.liverc.com/race' };
 const driver: TimingDriver = { name: 'Alex Smith', normalizedName: 'alex smith' };
 
 describe('timing selection', () => {
@@ -29,7 +29,7 @@ describe('timing selection', () => {
     const selection = { ...emptyTimingSelection(), track, event, race, classLabel: ' Buggy ', driver };
     expect(timingImportReadiness(selection)).toBeUndefined();
     expect(buildTimingImportRequest(selection)).toEqual(expect.objectContaining({ classLabel: ' Buggy ' }));
-    expect(buildTimingImportRequest(selection)).not.toHaveProperty('raceId');
+    expect(buildTimingImportRequest(selection)).toHaveProperty('raceId', '1');
     expect(buildTimingImportRequest(selection)).not.toHaveProperty('driverId');
     expect(timingImportReadiness({ ...selection, classLabel: ' ' })).toContain('class');
   });

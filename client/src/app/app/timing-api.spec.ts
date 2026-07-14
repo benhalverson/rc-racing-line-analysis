@@ -15,4 +15,18 @@ describe('TimingApi', () => {
     request.flush({ events: [] });
     http.verify();
   });
+
+  it('lists saved imports with a bounded limit and loads a full import by ID', () => {
+    TestBed.configureTestingModule({ providers: [TimingApi, provideHttpClient(), provideHttpClientTesting()] });
+    const api = TestBed.inject(TimingApi);
+    const http = TestBed.inject(HttpTestingController);
+    api.savedImports(7).subscribe();
+    const list = http.expectOne((candidate) => candidate.url === '/api/timing/imports');
+    expect(list.request.params.get('limit')).toBe('7');
+    list.flush({ imports: [] });
+    api.loadImport('saved-1').subscribe();
+    const detail = http.expectOne('/api/timing/imports/saved-1');
+    detail.flush({});
+    http.verify();
+  });
 });

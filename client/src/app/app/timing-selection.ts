@@ -8,24 +8,37 @@ export type TimingSelection = {
   classLabel: string;
   driver?: TimingDriver;
   importedResult?: TimingImport;
+  confirmedIdentity?: string;
 };
 
 export const emptyTimingSelection = (): TimingSelection => ({ classLabel: '' });
 
+export function timingSelectionIdentity(selection: TimingSelection): string {
+  return [selection.track?.url, selection.event?.url, selection.race?.id, selection.race?.url, selection.classLabel.trim(), selection.driver?.driverId, selection.driver?.normalizedName].map((value) => value ?? '').join('|');
+}
+
+export function confirmTimingSelection(selection: TimingSelection): TimingSelection {
+  return { ...selection, confirmedIdentity: timingSelectionIdentity(selection) };
+}
+
+export function timingSelectionIsConfirmed(selection: TimingSelection): boolean {
+  return Boolean(selection.confirmedIdentity && selection.confirmedIdentity === timingSelectionIdentity(selection));
+}
+
 export function selectTimingTrack(selection: TimingSelection, track: TimingTrack): TimingSelection {
-  return { ...selection, track, event: undefined, race: undefined, classLabel: '', driver: undefined, importedResult: undefined };
+  return { ...selection, track, event: undefined, race: undefined, classLabel: '', driver: undefined, importedResult: undefined, confirmedIdentity: undefined };
 }
 
 export function selectTimingEvent(selection: TimingSelection, event: TimingEvent): TimingSelection {
-  return { ...selection, event, race: undefined, classLabel: '', driver: undefined, importedResult: undefined };
+  return { ...selection, event, race: undefined, classLabel: '', driver: undefined, importedResult: undefined, confirmedIdentity: undefined };
 }
 
 export function selectTimingRace(selection: TimingSelection, race: TimingRace): TimingSelection {
-  return { ...selection, race, classLabel: '', driver: undefined, importedResult: undefined };
+  return { ...selection, race, classLabel: '', driver: undefined, importedResult: undefined, confirmedIdentity: undefined };
 }
 
 export function selectTimingDriver(selection: TimingSelection, driver: TimingDriver): TimingSelection {
-  return { ...selection, driver, importedResult: undefined };
+  return { ...selection, driver, importedResult: undefined, confirmedIdentity: undefined };
 }
 
 export function timingImportReadiness(selection: TimingSelection): string | undefined {

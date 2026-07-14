@@ -20,6 +20,33 @@ describe("LiveRC timing adapter", () => {
     expect(parseRaces(raceHtml, "https://rcra.liverc.com/results/")[0]).toMatchObject({ id: "44", label: "Buggy Heat 2/7" });
   });
 
+  it("keeps only exact same-host race-result links and preserves the first label", () => {
+    const html = [
+      '<a href="/results/?id=44&p=view_race_result">First label</a>',
+      '<a href="/results/?id=44&p=view_race_result">Duplicate label</a>',
+      '<a href="/results/?id=0&p=view_race_result">Placeholder</a>',
+      '<a href="/results/?id=45&p=view_event">Event</a>',
+      '<a href="/results/?id=46&p=view_race_result">Aggregate result</a>',
+      '<a href="/results/?id=bad&p=view_race_result">Malformed</a>',
+      '<a href="https://other.liverc.com/results/?id=47&p=view_race_result">External track</a>',
+      '<a href="https://example.com/results/?id=48&p=view_race_result">External</a>',
+    ].join('');
+    expect(parseRaces(html, "https://rcra.liverc.com/events/1")).toEqual([
+      { id: "44", label: "First label", url: "https://rcra.liverc.com/results/?id=44&p=view_race_result" },
+      { id: "46", label: "Aggregate result", url: "https://rcra.liverc.com/results/?id=46&p=view_race_result" },
+    ]);
+  });
+
+  it("resolves duplicate driver names by exact ID and rejects an ambiguous name", () => {
+    const html = `<script>
+      racerLaps[101] = { 'driverName': 'Alex Racer', 'laps': [ { 'lapNum': '1', 'pos': '1', 'time': '18.1', 'pace': '1/0:18.1' } ] };
+      racerLaps[202] = { 'driverName': 'Alex Racer', 'laps': [ { 'lapNum': '1', 'pos': '2', 'time': '19.2', 'pace': '2/0:19.2' } ] };
+    </script>`;
+    expect(() => parseDriverResult(html, "Alex Racer")).toThrow("ambiguous");
+    expect(parseDriverResult(html, "Alex Racer", "202")).toMatchObject({ driverId: "202", laps: [{ lapTimeSeconds: 19.2 }] });
+    expect(() => parseDriverResult(html, "Alex Racer", "999")).toThrow("not found");
+  });
+
   it("normalizes names for matching while preserving the displayed name", () => {
     expect(normalizeDriverName(" José  Racer ")).toBe("jose racer");
     expect(parseDriverResult(driverHtml, "alex racer")).toMatchObject({ driverName: "Alex Racer", laps: [{ lapNumber: 1, lapTimeSeconds: 18.42 }, { lapNumber: 2, lapTimeSeconds: 17.98 }] });
@@ -27,7 +54,7 @@ describe("LiveRC timing adapter", () => {
 
   it("extracts the clean driver name and View Laps URL from LiveRC result rows", () => {
     const html = '<tr><td>2</td><td>2</td><td>BEN HALVERSON</td><td><a href="?p=view_driver_laps&id=2">View Laps</a></td></tr>';
-    expect(parseDrivers(html)).toEqual([{ name: "BEN HALVERSON", normalizedName: "ben halverson" }]);
+    expect(parseDrivers(html)).toEqual([{ name: "BEN HALVERSON", normalizedName: "ben halverson", driverId: "2" }]);
   });
 
   it("does not expose a placeholder hash as a driver detail URL", () => {
@@ -121,6 +148,82 @@ describe("LiveRC timing adapter", () => {
     const response = await app.request("/timing/imports", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...timingRequest, driverName: " " }) });
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({ error: "all selected track, event, race, and driver fields are required" });
+  });
+
+  it("returns consistent upstream errors for races and drivers", async () => {
+    const app = createApp(new AnalysisWorkflow(new InMemoryAnalysisStore()), undefined, {
+      store: new InMemoryTimingStore(),
+      fetch: async (url: string) => ({ url, status: 503, html: "" }),
+    });
+    const races = await app.request("/timing/races?eventUrl=https%3A%2F%2Frcra.liverc.com%2Fevents%2F1");
+    const drivers = await app.request("/timing/drivers?raceUrl=https%3A%2F%2Frcra.liverc.com%2Fresults%2F%3Fid%3D44%26p%3Dview_race_result");
+    expect(races.status).toBe(502);
+    expect(await races.json()).toEqual({ error: "LiveRC returned HTTP 503" });
+    expect(drivers.status).toBe(502);
+    expect(await drivers.json()).toEqual({ error: "LiveRC returned HTTP 503" });
+  });
+
+  it("discovers races and drivers through the public API boundary", async () => {
+    const app = createApp(new AnalysisWorkflow(new InMemoryAnalysisStore()), undefined, {
+      store: new InMemoryTimingStore(),
+      fetch: async (url: string) => {
+        if (url.endsWith("/events/1")) return { url, status: 200, html: raceHtml };
+        return { url, status: 200, html: '<tr><td>2</td><td>2</td><td>BEN HALVERSON</td><td><a href="?p=view_driver_laps&id=2">View Laps</a></td></tr>' };
+      },
+    });
+    const races = await app.request("/timing/races?eventUrl=https%3A%2F%2Frcra.liverc.com%2Fevents%2F1");
+    expect(races.status).toBe(200);
+    expect(await races.json()).toEqual({ races: [{ id: "44", label: "Buggy Heat 2/7", url: "https://rcra.liverc.com/results/?id=44&p=view_race_result" }] });
+    const drivers = await app.request("/timing/drivers?raceUrl=https%3A%2F%2Frcra.liverc.com%2Fresults%2F%3Fid%3D44%26p%3Dview_race_result");
+    expect(drivers.status).toBe(200);
+    expect(await drivers.json()).toEqual({ drivers: [{ name: "BEN HALVERSON", normalizedName: "ben halverson", driverId: "2" }] });
+  });
+
+  it("rejects an import track URL outside the permitted LiveRC hosts before fetching", async () => {
+    let fetchCount = 0;
+    const app = createApp(new AnalysisWorkflow(new InMemoryAnalysisStore()), undefined, {
+      store: new InMemoryTimingStore(),
+      fetch: async (url: string) => { fetchCount += 1; return { url, status: 200, html: driverHtml }; },
+    });
+    const response = await app.request("/timing/imports", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...timingRequest, trackUrl: "https://example.com/" }) });
+    expect(response.status).toBe(400);
+    expect(fetchCount).toBe(0);
+  });
+
+  it("hydrates a saved import without contacting LiveRC", async () => {
+    const store = new InMemoryTimingStore();
+    let fetchCount = 0;
+    const app = createApp(new AnalysisWorkflow(new InMemoryAnalysisStore()), undefined, {
+      store,
+      fetch: async (url: string) => { fetchCount += 1; return { url, status: 200, html: driverHtml }; },
+    });
+    const created = await app.request("/timing/imports", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(timingRequest) });
+    const imported = await created.json() as { id: string; laps: unknown[]; sourceHash: string };
+    const before = fetchCount;
+    const fetched = await app.request(`/timing/imports/${imported.id}`);
+    expect(fetched.status).toBe(200);
+    expect(fetchCount).toBe(before);
+    expect(await fetched.json()).toMatchObject({ id: imported.id, sourceHash: imported.sourceHash, laps: imported.laps });
+  });
+
+  it("lists lightweight persisted imports newest first and respects the bounded limit", async () => {
+    const store = new InMemoryTimingStore();
+    const app = createApp(new AnalysisWorkflow(new InMemoryAnalysisStore()), undefined, {
+      store,
+      fetch: async (url: string) => ({ url, status: 200, html: driverHtml }),
+    });
+    for (const raceLabel of ["Older", "Newer"]) {
+      const raceId = raceLabel === "Older" ? "44" : "45";
+      const response = await app.request("/timing/imports", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...timingRequest, raceLabel, raceId, raceUrl: `https://rcra.liverc.com/results/?id=${raceId}&p=view_race_result` }) });
+      expect(response.status).toBe(201);
+      if (raceLabel === "Older") await new Promise((resolve) => setTimeout(resolve, 2));
+    }
+    const response = await app.request("/timing/imports?limit=1");
+    expect(response.status).toBe(200);
+    const body = await response.json() as { imports: Array<Record<string, unknown>> };
+    expect(body.imports).toHaveLength(1);
+    expect(body.imports[0]).not.toHaveProperty("laps");
+    expect(body.imports[0]).toMatchObject({ raceLabel: "Newer", classLabel: "Buggy", driverName: "Alex Racer" });
   });
 
   it("finds a hyphenated LiveRC track when the query omits punctuation", async () => {

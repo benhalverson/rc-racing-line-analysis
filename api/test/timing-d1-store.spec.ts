@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { timingImportFromRow, timingImportToRow, timingLapFromRow, timingLapToRow } from "../src/timing-d1-store";
+import { describe, expect, it, vi } from "vitest";
+import { D1TimingStore, timingImportFromRow, timingImportToRow, timingLapFromRow, timingLapToRow } from "../src/timing-d1-store";
 import type { TimingImport } from "../../shared/timing-contract";
 
 const value: TimingImport = {
@@ -9,7 +9,27 @@ const value: TimingImport = {
   parserVersion: "liverc-html-v1", sourceHash: "hash", laps: [{ lapNumber: 1, lapTimeSeconds: null, lapTimeText: "DNF", valid: false, statusText: "DNF" }],
 };
 
+const d1 = vi.hoisted(() => ({
+  batch: vi.fn(),
+  insert: vi.fn(() => ({ values: vi.fn((row: unknown) => ({ row })) })),
+}));
+vi.mock("drizzle-orm/d1", () => ({ drizzle: vi.fn(() => d1) }));
+
 describe("timing D1 mapping", () => {
+  it("submits the import header and every lap through one atomic batch", async () => {
+    d1.batch.mockResolvedValue([]);
+    await new D1TimingStore({} as D1Database).saveTimingImport(value);
+    expect(d1.batch).toHaveBeenCalledTimes(1);
+    expect(d1.batch.mock.calls[0][0]).toHaveLength(2);
+    expect(d1.insert).toHaveBeenCalledTimes(2);
+  });
+
+  it("propagates a failed batch so callers cannot observe a partial import", async () => {
+    const failure = new Error("lap insert failed");
+    d1.batch.mockRejectedValueOnce(failure);
+    await expect(new D1TimingStore({} as D1Database).saveTimingImport(value)).rejects.toBe(failure);
+  });
+
   it("maps every import field and nullable ID to the existing row shape", () => {
     expect(timingImportToRow(value)).toEqual({ ...value, laps: undefined });
   });

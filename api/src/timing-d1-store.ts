@@ -1,7 +1,7 @@
-import { eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { timingImports, timingLaps } from "./db/schema";
-import type { TimingImport, TimingLap, TimingStore } from "./timing";
+import { toTimingImportSummary, type TimingImport, type TimingLap, type TimingStore } from "./timing";
 
 type TimingImportRow = typeof timingImports.$inferSelect;
 type TimingImportInsert = typeof timingImports.$inferInsert;
@@ -60,13 +60,19 @@ export class D1TimingStore implements TimingStore {
   private readonly db;
   constructor(database: D1Database) { this.db = drizzle(database); }
   async saveTimingImport(value: TimingImport) {
-    await this.db.insert(timingImports).values(timingImportToRow(value)).run();
-    for (const lap of value.laps) await this.db.insert(timingLaps).values(timingLapToRow(value.id, lap)).run();
+    await this.db.batch([
+      this.db.insert(timingImports).values(timingImportToRow(value)),
+      ...value.laps.map((lap) => this.db.insert(timingLaps).values(timingLapToRow(value.id, lap))),
+    ]);
   }
   async getTimingImport(id: string) {
     const row = await this.db.select().from(timingImports).where(eq(timingImports.id, id)).get();
     if (!row) return undefined;
     const laps = await this.db.select().from(timingLaps).where(eq(timingLaps.importId, id)).all();
     return timingImportFromRow(row, laps.map(timingLapFromRow));
+  }
+  async listTimingImports(limit: number) {
+    const rows = await this.db.select().from(timingImports).orderBy(desc(timingImports.fetchedAt)).limit(limit).all();
+    return rows.map((row) => toTimingImportSummary(timingImportFromRow(row, [])));
   }
 }

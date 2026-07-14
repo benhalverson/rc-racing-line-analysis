@@ -10,7 +10,7 @@ export type TimingEvent = {
 };
 
 export type TimingRace = {
-  id: string | null;
+  id: string;
   label: string;
   url: string;
 };
@@ -65,3 +65,5 @@ export type TimingImport = {
   sourceHash: string;
   laps: TimingLap[];
 };
+
+export type TimingImportSummary = Pick<TimingImport, 'id' | 'source' | 'trackName' | 'eventName' | 'raceLabel' | 'classLabel' | 'driverName' | 'driverId' | 'fetchedAt' | 'raceId'>;

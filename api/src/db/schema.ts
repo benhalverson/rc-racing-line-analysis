@@ -19,5 +19,5 @@ export const timingImports = sqliteTable("timing_imports", {
 });
 
 export const timingLaps = sqliteTable("timing_laps", {
-  id: integer("id").primaryKey({ autoIncrement: true }), importId: text("import_id").notNull(), lapNumber: integer("lap_number").notNull(), lapTimeSeconds: real("lap_time_seconds"), lapTimeText: text("lap_time_text").notNull(), valid: integer("valid"), statusText: text("status_text"),
+  id: integer("id").primaryKey({ autoIncrement: true }), importId: text("import_id").notNull().references(() => timingImports.id, { onDelete: "cascade" }), lapNumber: integer("lap_number").notNull(), lapTimeSeconds: real("lap_time_seconds"), lapTimeText: text("lap_time_text").notNull(), valid: integer("valid"), statusText: text("status_text"),
 });
