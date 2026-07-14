@@ -249,7 +249,7 @@ export function createApp(workflow: AnalysisWorkflow, runtime?: AnalysisRuntime,
 function requiredQuery(c: { req: { query: (name: string) => string | undefined } }, name: string) {
   const value = c.req.query(name);
   if (!value?.trim()) throw new Error(`${name} is required`);
-  return value;
+  return value.trim();
 }
 
 function timingRouteError(c: { json: (body: { error: string }, status: 400 | 502) => Response }, error: unknown, fallback: string) {
