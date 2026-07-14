@@ -2,7 +2,7 @@ import { DecimalPipe } from '@angular/common';
 import { Component, DestroyRef, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import type { Subscription } from 'rxjs';
-import { AnalysisApi, type Analysis, type AnalysisConnectionState } from './app/analysis-api';
+import { AnalysisApi, type Analysis, type AnalysisConnectionState, type BoundingBox, type TrackingData } from './app/analysis-api';
 import { TimingApi, type TimingDriver, type TimingEvent, type TimingImportSummary, type TimingRace, type TimingTrack } from './app/timing-api';
 import { buildTimingImportRequest, confirmTimingSelection, emptyTimingSelection, selectTimingDriver, selectTimingEvent, selectTimingRace, selectTimingTrack, timingDriverOptionKey, timingImportReadiness, timingSelectionIsConfirmed, type TimingSelection } from './app/timing-selection';
 @Component({
@@ -18,6 +18,12 @@ export class App {
   private updates?: Subscription;
   readonly videoPath = signal('');
   readonly carDescription = signal('');
+  readonly initialBox = signal<BoundingBox>({ x: 0, y: 0, width: 1, height: 1 });
+  readonly reboxFrame = signal(0);
+  readonly reboxBox = signal<BoundingBox>({ x: 0, y: 0, width: 1, height: 1 });
+  readonly reboxObservationFilePath = signal('');
+  readonly reboxQualityArtifactPath = signal('');
+  readonly tracking = signal<TrackingData | undefined>(undefined);
   readonly message = signal('');
   readonly analysis = signal<Analysis | undefined>(undefined);
   readonly connectionState = signal<AnalysisConnectionState>('disconnected');
@@ -39,10 +45,12 @@ export class App {
         videoPath: this.videoPath(),
         videoName: this.videoPath().split('/').pop() ?? '',
         carDescription: this.carDescription() || undefined,
+        initialBox: this.initialBox(),
       })
       .subscribe({
         next: (value) => {
           this.analysis.set(value);
+          this.loadTracking(value.id);
           this.message.set('Draft saved locally.');
         },
         error: () => this.message.set('Unable to create draft.'),
@@ -59,6 +67,29 @@ export class App {
   }
   resume() {
     this.action('resume');
+  }
+  updateInitialBox(key: keyof BoundingBox, value: string) {
+    this.initialBox.update((box) => ({ ...box, [key]: Number(value) }));
+  }
+  updateReboxBox(key: keyof BoundingBox, value: string) {
+    this.reboxBox.update((box) => ({ ...box, [key]: Number(value) }));
+  }
+  rebox() {
+    const current = this.analysis();
+    if (!current) return;
+    this.api.rebox(current.id, {
+      frameNumber: this.reboxFrame(),
+      timestampMs: this.reboxFrame(),
+      box: this.reboxBox(),
+      observationFilePath: this.reboxObservationFilePath(),
+      qualityArtifactPath: this.reboxQualityArtifactPath(),
+    }).subscribe({
+      next: () => {
+        this.loadTracking(current.id);
+        this.resume();
+      },
+      error: () => this.message.set('Unable to resume tracking from this box.'),
+    });
   }
   searchTracks() {
     this.timingError.set('');
@@ -139,7 +170,10 @@ export class App {
     this.updates = this.api
       .updates(id, (state) => this.connectionState.set(state))
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({ next: (message) => this.analysis.set(message.analysis) });
+      .subscribe({ next: (message) => { this.analysis.set(message.analysis); this.loadTracking(message.analysis.id); } });
+  }
+  private loadTracking(id: string) {
+    this.api.tracking(id).subscribe({ next: (tracking) => this.tracking.set(tracking) });
   }
 }
 

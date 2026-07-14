@@ -44,7 +44,7 @@ describe("analysis API", () => {
   it("exposes health, draft creation, and lifecycle actions", async () => {
     const app = testApp();
     expect((await app.request("/health")).status).toBe(200);
-    const created = await app.request("/analyses", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ videoPath: "/race.mp4", videoName: "race.mp4" }) });
+    const created = await app.request("/analyses", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ videoPath: "/race.mp4", videoName: "race.mp4", initialBox: { x: 1, y: 2, width: 3, height: 4 } }) });
     expect(created.status).toBe(201);
     const analysis = (await created.json()) as { id: string };
     const queued = await app.request(`/analyses/${analysis.id}/queue`, { method: "POST" });
@@ -355,5 +355,102 @@ describe("analysis API", () => {
 
     expect(response.status).toBe(200);
     expect(calls).toEqual(["seed", "fetch"]);
+  });
+
+  it("preserves lost observations and creates a new segment when the user re-boxes", async () => {
+    const workflow = new AnalysisWorkflow(new InMemoryAnalysisStore());
+    const draft = await workflow.createDraft({
+      videoPath: "/race.mp4",
+      videoName: "race.mp4",
+      initialBox: { x: 10, y: 20, width: 30, height: 40 },
+    });
+    const [initialSegment] = (await workflow.tracking(draft.id)).segments;
+    await workflow.recordFrameObservation(draft.id, {
+      segmentId: initialSegment.id,
+      frameNumber: 10,
+      timestampMs: 400,
+      quality: "tracked",
+      box: { x: 11, y: 20, width: 30, height: 40 },
+      observationFilePath: "local://race/frames/10.json",
+      qualityArtifactPath: "local://race/quality/10.json",
+    });
+    await workflow.recordFrameObservation(draft.id, {
+      segmentId: initialSegment.id,
+      frameNumber: 11,
+      timestampMs: 440,
+      quality: "lost",
+      observationFilePath: "local://race/frames/11.json",
+      qualityArtifactPath: "local://race/quality/11.json",
+    });
+
+    const recovered = await workflow.rebox(draft.id, {
+      frameNumber: 12,
+      timestampMs: 480,
+      box: { x: 100, y: 200, width: 30, height: 40 },
+      observationFilePath: "local://race/frames/12.json",
+      qualityArtifactPath: "local://race/quality/12.json",
+    });
+    const tracking = await workflow.tracking(draft.id);
+
+    expect(recovered.observation.quality).toBe("reacquired");
+    expect(tracking.segments).toHaveLength(2);
+    expect(tracking.observations.map(({ quality }) => quality)).toEqual(["tracked", "lost", "reacquired"]);
+    expect(tracking.observations[1].box).toBeNull();
+    expect((await workflow.get(draft.id)).checkpoint).toBe("tracking-frame-12");
+  });
+
+  it("requires local quality artifacts and a lost observation before re-boxing", async () => {
+    const workflow = new AnalysisWorkflow(new InMemoryAnalysisStore());
+    const draft = await workflow.createDraft({
+      videoPath: "/race.mp4",
+      videoName: "race.mp4",
+      initialBox: { x: 10, y: 20, width: 30, height: 40 },
+    });
+    const [segment] = (await workflow.tracking(draft.id)).segments;
+
+    await expect(workflow.recordFrameObservation(draft.id, {
+      segmentId: segment.id,
+      frameNumber: 1,
+      timestampMs: 40,
+      quality: "tracked",
+      box: { x: 10, y: 20, width: 30, height: 40 },
+      observationFilePath: "https://example.test/frame.json",
+      qualityArtifactPath: "local://race/quality/1.json",
+    })).rejects.toThrow("artifact paths must reference local files");
+    await expect(workflow.rebox(draft.id, {
+      frameNumber: 2,
+      timestampMs: 80,
+      box: { x: 10, y: 20, width: 30, height: 40 },
+      observationFilePath: "local://race/frames/2.json",
+      qualityArtifactPath: "local://race/quality/2.json",
+    })).rejects.toThrow("re-boxing requires a lost observation");
+  });
+
+  it("exposes tracking observations and rejects boxes with remote artifacts", async () => {
+    const app = testApp();
+    const created = await app.request("/analyses", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ videoPath: "/race.mp4", videoName: "race.mp4", initialBox: { x: 1, y: 2, width: 3, height: 4 } }),
+    });
+    const analysis = await created.json() as { id: string };
+    const tracking = await app.request(`/analyses/${analysis.id}/tracking`);
+    const [{ id: segmentId }] = (await tracking.json() as { segments: { id: string }[] }).segments;
+    const rejected = await app.request(`/analyses/${analysis.id}/tracking/observations`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        segmentId,
+        frameNumber: 1,
+        timestampMs: 40,
+        quality: "tracked",
+        box: { x: 1, y: 2, width: 3, height: 4 },
+        observationFilePath: "https://example.test/frame.json",
+        qualityArtifactPath: "local://race/quality/1.json",
+      }),
+    });
+
+    expect(tracking.status).toBe(200);
+    expect(rejected.status).toBe(400);
   });
 });

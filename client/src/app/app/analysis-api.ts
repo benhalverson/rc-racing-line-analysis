@@ -16,6 +16,31 @@ export interface Analysis {
   updatedAt: string;
 }
 
+export interface BoundingBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export type TrackingQuality = 'tracked' | 'suspect' | 'lost' | 'reacquired';
+
+export interface FrameObservation {
+  id: string;
+  segmentId: string;
+  frameNumber: number;
+  timestampMs: number;
+  quality: TrackingQuality;
+  box: BoundingBox | null;
+  observationFilePath: string;
+  qualityArtifactPath: string;
+}
+
+export interface TrackingData {
+  segments: { id: string; startFrame: number; initialBox: BoundingBox }[];
+  observations: FrameObservation[];
+}
+
 export type AnalysisConnectionState = 'connected' | 'reconnecting' | 'disconnected';
 export interface AnalysisSocketMessage {
   type: 'snapshot' | 'updated';
@@ -31,11 +56,24 @@ export class AnalysisApi {
     videoPath: string;
     videoName: string;
     carDescription?: string;
+    initialBox: BoundingBox;
   }): Observable<Analysis> {
     return this.http.post<Analysis>('/api/analyses', input);
   }
   get(id: string): Observable<Analysis> {
     return this.http.get<Analysis>(`/api/analyses/${id}`);
+  }
+  tracking(id: string): Observable<TrackingData> {
+    return this.http.get<TrackingData>(`/api/analyses/${id}/tracking`);
+  }
+  rebox(id: string, input: {
+    frameNumber: number;
+    timestampMs: number;
+    box: BoundingBox;
+    observationFilePath: string;
+    qualityArtifactPath: string;
+  }): Observable<TrackingData> {
+    return this.http.post<TrackingData>(`/api/analyses/${id}/tracking/rebox`, input);
   }
   action(id: string, action: 'queue' | 'start' | 'cancel' | 'resume'): Observable<Analysis> {
     return this.http.post<Analysis>(`/api/analyses/${id}/${action}`, {});

@@ -14,6 +14,33 @@ export const analyses = sqliteTable("analyses", {
   updatedAt: text("updated_at").notNull(),
 });
 
+export const trackSegments = sqliteTable("track_segments", {
+  id: text("id").primaryKey(),
+  analysisId: text("analysis_id").notNull().references(() => analyses.id, { onDelete: "cascade" }),
+  startFrame: integer("start_frame").notNull(),
+  boxX: real("box_x").notNull(),
+  boxY: real("box_y").notNull(),
+  boxWidth: real("box_width").notNull(),
+  boxHeight: real("box_height").notNull(),
+  createdAt: text("created_at").notNull(),
+});
+
+export const frameObservations = sqliteTable("frame_observations", {
+  id: text("id").primaryKey(),
+  analysisId: text("analysis_id").notNull().references(() => analyses.id, { onDelete: "cascade" }),
+  segmentId: text("segment_id").notNull().references(() => trackSegments.id, { onDelete: "cascade" }),
+  frameNumber: integer("frame_number").notNull(),
+  timestampMs: integer("timestamp_ms").notNull(),
+  quality: text("quality").notNull(),
+  boxX: real("box_x"),
+  boxY: real("box_y"),
+  boxWidth: real("box_width"),
+  boxHeight: real("box_height"),
+  observationFilePath: text("observation_file_path").notNull(),
+  qualityArtifactPath: text("quality_artifact_path").notNull(),
+  createdAt: text("created_at").notNull(),
+});
+
 export const timingImports = sqliteTable("timing_imports", {
   id: text("id").primaryKey(), source: text("source").notNull(), trackHost: text("track_host").notNull(), trackName: text("track_name").notNull(), trackUrl: text("track_url").notNull(), eventName: text("event_name").notNull(), eventUrl: text("event_url").notNull(), raceId: text("race_id"), raceLabel: text("race_label").notNull(), roundLabel: text("round_label").notNull(), classLabel: text("class_label").notNull(), raceUrl: text("race_url").notNull(), driverName: text("driver_name").notNull(), normalizedDriverName: text("normalized_driver_name").notNull(), driverId: text("driver_id"), fetchedAt: text("fetched_at").notNull(), parserVersion: text("parser_version").notNull(), sourceHash: text("source_hash").notNull(),
 });
