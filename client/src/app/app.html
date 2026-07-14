@@ -28,6 +28,18 @@
       <p class="message" role="status">{{ message() }}</p>
     }
   </section>
+  <section class="panel timing-panel">
+    <div class="section-heading"><div><p class="eyebrow">LIVERC TIMING</p><h2>Choose the exact race</h2></div><span class="step">1 / 4</span></div>
+    <p class="meta">Select the track, event, race, and driver before importing individual lap times.</p>
+    <div class="inline-form"><input aria-label="LiveRC track search" [value]="trackQuery()" (input)="trackQuery.set($any($event.target).value)" placeholder="Search track or hobby shop" /><button type="button" (click)="searchTracks()">Search tracks</button></div>
+    @if (tracks().length) { <div class="choice-list"> @for (track of tracks(); track track.host) { <button type="button" [class.selected]="selectedTrack()?.host === track.host" (click)="chooseTrack(track)">{{ track.name }} <small>{{ track.host }}</small></button> } </div> }
+    @if (selectedTrack()) { <label for="event-choice">Archived event</label><select id="event-choice" (change)="chooseEvent(events()[$any($event.target).selectedIndex - 1])"><option value="">Select an event</option>@for (event of events(); track event.url) {<option [selected]="selectedEvent()?.url === event.url">{{ event.name }}</option>}</select> }
+    @if (selectedEvent()) { <label for="race-choice">Heat or main event</label><select id="race-choice" (change)="chooseRace(races()[$any($event.target).selectedIndex - 1])"><option value="">Select a race</option>@for (race of races(); track race.url) {<option [selected]="selectedRace()?.url === race.url">{{ race.label }}</option>}</select> }
+    @if (selectedRace()) { <label for="driver-choice">Driver</label><select id="driver-choice" (change)="chooseDriver(drivers()[$any($event.target).selectedIndex - 1])"><option value="">Select a driver</option>@for (driver of drivers(); track driver.normalizedName) {<option [selected]="selectedDriver()?.normalizedName === driver.normalizedName">{{ driver.name }}</option>}</select> }
+    @if (selectedDriver()) { <button type="button" (click)="importSelectedTiming()">Confirm and import timing</button> }
+    @if (timingImport(); as imported) { <p class="success" role="status">{{ imported.driverName }} · {{ imported.laps.length }} laps imported and cached locally.</p> }
+    @if (timingError()) { <p class="error" role="alert">{{ timingError() }}</p> }
+  </section>
   @if (analysis(); as current) {
     <section class="panel status">
       <div>
