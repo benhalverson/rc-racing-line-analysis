@@ -85,8 +85,8 @@ export class App {
       observationFilePath: this.reboxObservationFilePath(),
       qualityArtifactPath: this.reboxQualityArtifactPath(),
     }).subscribe({
-      next: () => {
-        this.loadTracking(current.id);
+      next: (tracking) => {
+        this.tracking.set(tracking);
         this.resume();
       },
       error: () => this.message.set('Unable to resume tracking from this box.'),

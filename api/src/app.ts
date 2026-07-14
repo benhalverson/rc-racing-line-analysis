@@ -200,7 +200,9 @@ export function createApp(workflow: AnalysisWorkflow, runtime?: AnalysisRuntime,
     const parsed = rebox.safeParse(await c.req.json());
     if (!parsed.success) return c.json({ error: "invalid re-box" }, 400);
     try {
-      return c.json(await workflow.rebox(c.req.param("id"), parsed.data), 201);
+      const id = c.req.param("id");
+      await workflow.rebox(id, parsed.data);
+      return c.json(await workflow.tracking(id), 201);
     } catch (error) {
       return c.json({ error: errorMessage(error) }, 400);
     }
