@@ -3,13 +3,17 @@ import { provideHttpClient } from '@angular/common/http';
 import { of, Subject, throwError } from 'rxjs';
 import { vi } from 'vitest';
 import { App } from './app';
+import { BrowserSqliteStore } from './app/browser-sqlite';
 import { TimingApi } from './app/timing-api';
 
 describe('App', () => {
   beforeEach(async () => {
     await TestBed.configureTestingModule({
       imports: [App],
-      providers: [provideHttpClient()],
+      providers: [
+        provideHttpClient(),
+        { provide: BrowserSqliteStore, useValue: { saveVideo: vi.fn(), loadVideo: vi.fn(), saveCorrectionSet: vi.fn() } },
+      ],
     }).compileComponents();
   });
 
@@ -35,6 +39,34 @@ describe('App', () => {
     await fixture.whenStable();
     const compiled = fixture.nativeElement as HTMLElement;
     expect(compiled.querySelector('h1')?.textContent).toContain('Local analysis workspace');
+  });
+
+  it('disables Begin calibration once calibration is active', () => {
+    const fixture = TestBed.createComponent(App);
+    fixture.componentInstance.analysis.set({
+      id: 'analysis-1', videoPath: 'browser-sqlite://video-1', videoName: 'race.mp4', carDescription: null,
+      state: 'awaiting_calibration', phase: 'calibrating', progress: 0, checkpoint: 'calibration-started',
+      error: null, createdAt: '', updatedAt: '', videoStorage: 'browser-sqlite',
+      localVideoRef: { id: 'video-1', name: 'race.mp4', mimeType: 'video/mp4', size: 1, lastModified: 1 },
+      acceptedCorrectionSetId: null,
+    });
+    fixture.detectChanges();
+    const panel = fixture.nativeElement as HTMLElement;
+    expect(panel.querySelector('.calibration-panel button')?.hasAttribute('disabled')).toBe(true);
+    expect(panel.querySelector('app-calibration-canvas')).toBeTruthy();
+    expect(panel.textContent).toContain('Set race start');
+    expect(panel.textContent).toContain('Set marker frame');
+    expect(panel.textContent).toContain('Set car frame');
+    expect(panel.textContent).toContain('Set race start on the video.');
+    fixture.destroy();
+  });
+
+  it('fills the video path as soon as a file is selected', () => {
+    TestBed.overrideProvider(BrowserSqliteStore, { useValue: { saveVideo: vi.fn().mockResolvedValue({ id: 'video-1' }) } });
+    const fixture = TestBed.createComponent(App);
+    fixture.componentInstance.selectVideo({ target: { files: [new File(['video'], 'race.mp4')] } } as unknown as Event);
+    expect(fixture.componentInstance.videoPath()).toBe('race.mp4');
+    fixture.destroy();
   });
 
   it('renders duplicate driver names as distinct options and ignores an obsolete driver response', async () => {

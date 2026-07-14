@@ -1,0 +1,12 @@
+:host { display: block; }
+.calibration-canvas-shell { display: grid; gap: 10px; margin-top: 18px; }
+.video-stage { position: relative; overflow: hidden; background: #080b10; border: 1px solid #343d4c; border-radius: 10px; line-height: 0; }
+.video-stage video { display: block; width: 100%; height: auto; max-height: 66vh; object-fit: contain; }
+.video-stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.calibration-hit-area { position: absolute; inset: 0 0 46px; touch-action: none; cursor: crosshair; }
+.video-stage:not(:has(video[src])) canvas { display: none; }
+.empty-stage { position: absolute; inset: 50% 20px auto; transform: translateY(-50%); margin: 0; color: #9ca7b5; text-align: center; line-height: 1.4; }
+.video-readout { display: flex; gap: 6px; color: #dbe0e8; font-variant-numeric: tabular-nums; font-size: .84rem; }
+.video-readout .mode-label { margin-left: auto; color: #e4c985; }
+.error { color: #ef9a9a; }
+@media (max-width: 600px) { .video-readout .mode-label { margin-left: 0; } .video-readout { flex-wrap: wrap; } }

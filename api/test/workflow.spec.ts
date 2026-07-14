@@ -47,6 +47,9 @@ describe("analysis API", () => {
     const analysis = (await created.json()) as { id: string };
     const started = await app.request(`/analyses/${analysis.id}/calibration/start`, { method: "POST" });
     expect((await started.json() as { state: string }).state).toBe("awaiting_calibration");
+    const startedAgain = await app.request(`/analyses/${analysis.id}/calibration/start`, { method: "POST" });
+    expect(startedAgain.status).toBe(200);
+    expect((await startedAgain.json() as { state: string }).state).toBe("awaiting_calibration");
     const response = await app.request(`/analyses/${analysis.id}/correction-sets`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ raceStartSeconds: 1, markerReferenceSeconds: 2, carSelectionSeconds: 3, markers: [{ id: "m1", position: { x: 0.2, y: 0.3 }, source: "detected" }], selectedCarBox: { x: 0.1, y: 0.1, width: 0.2, height: 0.2 } }) });
     expect(response.status).toBe(201);
     expect((await response.json() as { version: number }).version).toBe(1);

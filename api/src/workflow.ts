@@ -44,6 +44,8 @@ export class AnalysisWorkflow {
   }
 
   async startCalibration(id: string): Promise<Analysis> {
+    const analysis = await this.get(id);
+    if (analysis.state === "awaiting_calibration") return analysis;
     return this.transition(id, "awaiting_calibration", { phase: "calibrating", checkpoint: "calibration-started", error: null });
   }
   async createAndAcceptCorrectionSet(id: string, payload: Omit<CorrectionSet, "id" | "analysisId" | "version" | "accepted" | "createdAt">) {

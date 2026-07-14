@@ -4,7 +4,7 @@ import { isNormalizedBox, isNormalizedPoint, type CorrectionSet } from "../../sh
 import { errorMessage } from "./errors";
 import type { AnalysisProgressRoom } from "./progress-room";
 import type { AnalysisWorkflow } from "./workflow";
-import { fetchTimingPage, importTiming, normalizeLiveRcUrl, normalizeRaceResultUrl, normalizeTrackUrl, parseDrivers, parseEvents, parseRaces, parseTrackList, TimingUpstreamError, type TimingFetcher, type TimingStore } from "./timing";
+import { fetchTimingPage, importTiming, normalizeLiveRcUrl, normalizeRaceResultUrl, normalizeTrackUrl, parseDrivers, parseEvents, parseRaces, parseTrackList, TimingGatewayError, TimingParserError, TimingUpstreamError, type TimingFetcher, type TimingStore } from "./timing";
 
 export interface AnalysisRuntime {
   workflow: {
@@ -290,7 +290,8 @@ function requiredQuery(c: { req: { query: (name: string) => string | undefined }
 }
 
 function timingRouteError(c: { json: (body: { error: string }, status: 400 | 502) => Response }, error: unknown, fallback: string) {
-  return c.json({ error: error instanceof Error ? error.message : fallback }, error instanceof TimingUpstreamError ? 502 : 400);
+	const isGatewayError = error instanceof TimingGatewayError || error instanceof TimingParserError || error instanceof TimingUpstreamError;
+	return c.json({ error: error instanceof Error ? error.message : fallback }, isGatewayError ? 502 : 400);
 }
 
 function searchKey(value: string) {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createApp } from "../src/app";
 import { InMemoryAnalysisStore } from "../src/store";
-import { InMemoryTimingStore, normalizeDriverName, normalizeTrackUrl, parseDriverResult, parseDrivers, parseEvents, parseRaces, parseTrackList } from "../src/timing";
+import { fetchTimingPage, InMemoryTimingStore, normalizeDriverName, normalizeTrackUrl, parseDriverResult, parseDrivers, parseEvents, parseRaces, parseTrackList } from "../src/timing";
 import { AnalysisWorkflow } from "../src/workflow";
 
 const tracksHtml = '<a href="https://rcra.liverc.com/">RCRA</a><a href="https://other.liverc.com/">Other Track</a>';
@@ -14,6 +14,35 @@ const timingRequest = {
 };
 
 describe("LiveRC timing adapter", () => {
+  it("retries a transient network failure once", async () => {
+    let attempts = 0;
+    const page = await fetchTimingPage(async (url) => {
+      attempts += 1;
+      if (attempts === 1) throw new Error("network unavailable");
+      return { url, status: 200, html: "ok" };
+    }, "https://norcalhobbies.liverc.com/events/");
+    expect(attempts).toBe(2);
+    expect(page.html).toBe("ok");
+  });
+
+  it("returns 502 after two transient failures", async () => {
+    let attempts = 0;
+    await expect(fetchTimingPage(async () => {
+      attempts += 1;
+      return { url: "https://norcalhobbies.liverc.com/events/", status: 503, html: "" };
+    }, "https://norcalhobbies.liverc.com/events/")).rejects.toThrow("LiveRC returned HTTP 503");
+    expect(attempts).toBe(2);
+  });
+
+  it("does not retry a client error", async () => {
+    let attempts = 0;
+    await expect(fetchTimingPage(async () => {
+      attempts += 1;
+      return { url: "https://norcalhobbies.liverc.com/events/", status: 404, html: "" };
+    }, "https://norcalhobbies.liverc.com/events/")).rejects.toThrow("LiveRC returned HTTP 404");
+    expect(attempts).toBe(1);
+  });
+
   it("discovers tracks, events, and race-result links without slugifying names", () => {
     expect(parseTrackList(tracksHtml).map((track) => track.host)).toEqual(["rcra.liverc.com", "other.liverc.com"]);
     expect(parseEvents('<a href="https://live.liverc.com/events/calendar/">Calendar</a><a href="/results/?id=44&p=view_event">2026 Nationals</a><a href="/results/?p=view_event&id=44">Duplicate</a><a href="https://other.liverc.com/results/?id=99&p=view_event">Other</a><a href="/events/">Past Events</a><a href="/results/?id=0&p=view_event">Placeholder</a>', "https://rcra.liverc.com/")).toEqual([{ name: "2026 Nationals", url: "https://rcra.liverc.com/results/?id=44&p=view_event" }]);
@@ -253,6 +282,26 @@ describe("LiveRC timing adapter", () => {
       fetch: async (url: string) => ({ url, status: 200, html: '<a href="https://norcalhobbies.liverc.com/">Nor-Cal Hobbies</a>' }),
     });
     const response = await app.request("/timing/tracks?query=norcal%20hobbies");
+    expect(await response.json()).toEqual({ tracks: [{ host: "norcalhobbies.liverc.com", name: "Nor-Cal Hobbies", url: "https://norcalhobbies.liverc.com/" }] });
+  });
+
+  it("returns a gateway error when LiveRC cannot be reached", async () => {
+    const app = createApp(new AnalysisWorkflow(new InMemoryAnalysisStore()), undefined, {
+      store: new InMemoryTimingStore(),
+      fetch: async () => { throw new Error("network unavailable"); },
+    });
+    const response = await app.request("/timing/tracks?query=norcal%20hobbies");
+    expect(response.status).toBe(502);
+    expect(await response.json()).toEqual({ error: "Unable to reach LiveRC" });
+  });
+
+  it("skips malformed and unrelated track links", async () => {
+    const app = createApp(new AnalysisWorkflow(new InMemoryAnalysisStore()), undefined, {
+      store: new InMemoryTimingStore(),
+      fetch: async (url: string) => ({ url, status: 200, html: '<a href="%">Broken</a><a href="https://example.com/">Unrelated</a><a href="https://norcalhobbies.liverc.com/path">Nor-Cal Hobbies</a>' }),
+    });
+    const response = await app.request("/timing/tracks?query=norcal%20hobbies");
+    expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ tracks: [{ host: "norcalhobbies.liverc.com", name: "Nor-Cal Hobbies", url: "https://norcalhobbies.liverc.com/" }] });
   });
 

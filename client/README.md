@@ -57,3 +57,13 @@ Angular CLI does not come with an end-to-end testing framework by default. You c
 ## Additional Resources
 
 For more information on using the Angular CLI, including detailed command references, visit the [Angular CLI Overview and Command Reference](https://angular.dev/tools/cli) page.
+# RC Racing Line Analysis client
+
+## SQLite browser storage
+
+The browser SQLite database uses OPFS from a dedicated Web Worker. Development
+serving is configured with `Cross-Origin-Opener-Policy: same-origin` and
+`Cross-Origin-Embedder-Policy: require-corp`; production hosting must send the
+same headers for the application document and worker responses. The deployed
+application must also serve `/sqlite3.wasm` and
+`/sqlite3-opfs-async-proxy.js` from the application origin.
