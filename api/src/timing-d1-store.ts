@@ -60,9 +60,10 @@ export class D1TimingStore implements TimingStore {
   private readonly db;
   constructor(database: D1Database) { this.db = drizzle(database); }
   async saveTimingImport(value: TimingImport) {
+    const lapRows = value.laps.map((lap) => timingLapToRow(value.id, lap));
     await this.db.batch([
       this.db.insert(timingImports).values(timingImportToRow(value)),
-      ...value.laps.map((lap) => this.db.insert(timingLaps).values(timingLapToRow(value.id, lap))),
+      ...(lapRows.length > 0 ? [this.db.insert(timingLaps).values(lapRows)] : []),
     ]);
   }
   async getTimingImport(id: string) {

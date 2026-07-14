@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { D1TimingStore, timingImportFromRow, timingImportToRow, timingLapFromRow, timingLapToRow } from "../src/timing-d1-store";
 import type { TimingImport } from "../../shared/timing-contract";
 
@@ -6,7 +6,10 @@ const value: TimingImport = {
   id: "import-1", source: "liverc", trackHost: "track.liverc.com", trackName: "Track", trackUrl: "https://track.liverc.com/",
   eventName: "Event", eventUrl: "https://track.liverc.com/event", raceId: null, raceLabel: "Race", roundLabel: "Round", classLabel: "Class",
   raceUrl: "https://track.liverc.com/race", driverName: "Driver", normalizedDriverName: "driver", driverId: "driver-1", fetchedAt: "2026-07-14T00:00:00.000Z",
-  parserVersion: "liverc-html-v1", sourceHash: "hash", laps: [{ lapNumber: 1, lapTimeSeconds: null, lapTimeText: "DNF", valid: false, statusText: "DNF" }],
+  parserVersion: "liverc-html-v1", sourceHash: "hash", laps: [
+    { lapNumber: 1, lapTimeSeconds: null, lapTimeText: "DNF", valid: false, statusText: "DNF" },
+    { lapNumber: 2, lapTimeSeconds: 42.5, lapTimeText: "42.500", valid: true, statusText: null },
+  ],
 };
 
 const d1 = vi.hoisted(() => ({
@@ -16,12 +19,31 @@ const d1 = vi.hoisted(() => ({
 vi.mock("drizzle-orm/d1", () => ({ drizzle: vi.fn(() => d1) }));
 
 describe("timing D1 mapping", () => {
-  it("submits the import header and every lap through one atomic batch", async () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("submits the import header and all laps through one atomic batch", async () => {
     d1.batch.mockResolvedValue([]);
     await new D1TimingStore({} as D1Database).saveTimingImport(value);
     expect(d1.batch).toHaveBeenCalledTimes(1);
+    expect(d1.batch.mock.calls[0][0]).toEqual([
+      { row: timingImportToRow(value) },
+      { row: value.laps.map((lap) => timingLapToRow(value.id, lap)) },
+    ]);
     expect(d1.batch.mock.calls[0][0]).toHaveLength(2);
     expect(d1.insert).toHaveBeenCalledTimes(2);
+  });
+
+  it("submits only the import header when there are no laps", async () => {
+    d1.batch.mockResolvedValue([]);
+    const emptyImport = { ...value, laps: [] };
+
+    await new D1TimingStore({} as D1Database).saveTimingImport(emptyImport);
+
+    expect(d1.batch).toHaveBeenCalledTimes(1);
+    expect(d1.batch.mock.calls[0][0]).toEqual([{ row: timingImportToRow(emptyImport) }]);
+    expect(d1.insert).toHaveBeenCalledTimes(1);
   });
 
   it("propagates a failed batch so callers cannot observe a partial import", async () => {
