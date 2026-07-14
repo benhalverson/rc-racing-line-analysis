@@ -33,6 +33,7 @@ export class App {
   readonly review = signal<RacingLineReview | undefined>(undefined);
   readonly selectedReviewLap = signal<number | undefined>(undefined);
   readonly crossingTime = signal('');
+  readonly reviewError = signal('');
   selectVideo(event: Event) {
     const file = (event.target as HTMLInputElement).files?.[0];
     if (file) this.videoPath.set(`local://${file.name}`);
@@ -145,7 +146,19 @@ export class App {
     const lapNumber = this.selectedReviewLap();
     if (lapNumber === undefined) return;
     const seconds = Number(this.crossingTime());
-    this.review.update((review) => review ? correctLapCrossing(review, lapNumber, seconds) : review);
+    const review = this.review();
+    if (!Number.isFinite(seconds)) {
+      this.reviewError.set('Enter a valid video time in seconds.');
+      return;
+    }
+    if (!review) return;
+    const corrected = correctLapCrossing(review, lapNumber, seconds);
+    if (corrected === review) {
+      this.reviewError.set('The crossing must be between the adjacent detected crossings.');
+      return;
+    }
+    this.review.set(corrected);
+    this.reviewError.set('');
   }
   assignLap(liveRcLapNumber: number) {
     const lapNumber = this.selectedReviewLap();
@@ -156,8 +169,9 @@ export class App {
     this.assignLap(Number((event.target as HTMLSelectElement).value));
   }
   formatVideoTime(seconds: number) {
-    const minutes = Math.floor(seconds / 60);
-    return `${minutes}:${(seconds % 60).toFixed(3).padStart(6, '0')}`;
+    const validSeconds = Number.isFinite(seconds) && seconds >= 0 ? seconds : 0;
+    const minutes = Math.floor(validSeconds / 60);
+    return `${minutes}:${(validSeconds % 60).toFixed(3).padStart(6, '0')}`;
   }
   private isCurrentTimingSelection(selection: TimingSelection) {
     const current = this.timingSelection();

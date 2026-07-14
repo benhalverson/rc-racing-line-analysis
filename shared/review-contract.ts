@@ -57,7 +57,7 @@ export function correctLapCrossing(review: RacingLineReview, lapNumber: number, 
 
 export function assignLiveRcLap(review: RacingLineReview, crossingLapNumber: number, liveRcLapNumber: number): RacingLineReview {
   const replacement = review.laps.find((lap) => lap.liveRcLap.lapNumber === liveRcLapNumber)?.liveRcLap;
-  if (!replacement) return review;
+  if (!replacement || !review.laps.some((lap) => lap.crossingLapNumber === crossingLapNumber)) return review;
   return {
     ...review,
     laps: review.laps.map((lap) => lap.crossingLapNumber === crossingLapNumber ? { ...lap, liveRcLap: replacement } : lap),

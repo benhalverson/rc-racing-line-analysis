@@ -72,8 +72,9 @@
           </tbody></table>
           @if (selectedReviewLap(); as selectedLap) {
             <div class="crossing-controls">
-              <label for="crossing-time">Crossing time (video seconds)</label><input id="crossing-time" type="number" min="0" step="0.001" [value]="crossingTime()" (input)="crossingTime.set($any($event.target).value)" />
+              <label for="crossing-time">Crossing time (video seconds)</label><input id="crossing-time" type="number" min="0" step="0.001" [value]="crossingTime()" (input)="crossingTime.set($any($event.target).value)" [attr.aria-invalid]="reviewError() ? 'true' : null" aria-describedby="crossing-error" />
               <button type="button" (click)="correctCrossing()">Correct lap {{ selectedLap }} crossing</button>
+              @if (reviewError()) { <p id="crossing-error" class="error" role="alert">{{ reviewError() }}</p> }
               <label for="liverc-lap">Assign crossing to LiveRC lap</label><select id="liverc-lap" (change)="assignLapFromEvent($event)">@for (lap of review.laps; track $index) { <option [value]="lap.liveRcLap.lapNumber">LiveRC lap {{ lap.liveRcLap.lapNumber }}</option> }</select>
             </div>
           }

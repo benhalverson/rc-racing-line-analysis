@@ -30,5 +30,6 @@ describe("racing line review contract", () => {
     expect(corrected.laps[2].videoStartSeconds).toBe(47);
     const assigned = assignLiveRcLap(corrected, 2, 3).laps[1];
     expect(assigned).toMatchObject({ crossingLapNumber: 2, liveRcLap: { lapNumber: 3 } });
+    expect(assignLiveRcLap(corrected, 99, 3)).toBe(corrected);
   });
 });
