@@ -75,7 +75,9 @@ export function createApp(workflow: AnalysisWorkflow, runtime?: AnalysisRuntime,
   app.get("/timing/events", async (c) => {
     if (!timing) return c.json({ error: "timing import is unavailable" }, 503);
     try {
-      const page = await timing.fetch(requiredQuery(c, "trackUrl"));
+      const trackUrl = requiredQuery(c, "trackUrl");
+      const eventsUrl = new URL("/events/", trackUrl).toString();
+      const page = await timing.fetch(eventsUrl);
       if (page.status < 200 || page.status >= 300) return c.json({ error: `LiveRC returned HTTP ${page.status}` }, 502);
       return c.json({ events: parseEvents(page.html, page.url) });
     } catch (error) {

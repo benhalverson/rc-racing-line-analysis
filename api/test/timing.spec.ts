@@ -11,7 +11,7 @@ const driverHtml = '<table><tr><td>Alex Racer</td>  <td>1</td></tr></table><div>
 describe("LiveRC timing adapter", () => {
   it("discovers tracks, events, and race-result links without slugifying names", () => {
     expect(parseTrackList(tracksHtml).map((track) => track.host)).toEqual(["rcra.liverc.com", "other.liverc.com"]);
-    expect(parseEvents('<a href="/events/2026">2026 Nationals</a>', "https://rcra.liverc.com/")).toEqual([{ name: "2026 Nationals", url: "https://rcra.liverc.com/events/2026" }]);
+    expect(parseEvents('<a href="https://live.liverc.com/events/calendar/">Calendar</a><a href="/results/?id=44&p=view_event">2026 Nationals</a><a href="/results/?id=44&p=view_event">Duplicate</a><a href="/events/">Past Events</a>', "https://rcra.liverc.com/")).toEqual([{ name: "2026 Nationals", url: "https://rcra.liverc.com/results/?id=44&p=view_event" }]);
     expect(parseRaces(raceHtml, "https://rcra.liverc.com/results/")[0]).toMatchObject({ id: "44", label: "Buggy Heat 2/7" });
   });
 
@@ -53,5 +53,16 @@ describe("LiveRC timing adapter", () => {
     });
     const response = await app.request("/timing/tracks?query=norcal%20hobbies");
     expect(await response.json()).toEqual({ tracks: [{ host: "norcalhobbies.liverc.com", name: "Nor-Cal Hobbies", url: "https://norcalhobbies.liverc.com/" }] });
+  });
+
+  it("loads the selected track archive when discovering events", async () => {
+    let requestedUrl = "";
+    const app = createApp(new AnalysisWorkflow(new InMemoryAnalysisStore()), undefined, {
+      store: new InMemoryTimingStore(),
+      fetch: async (url: string) => { requestedUrl = url; return { url, status: 200, html: '<a href="/results/?id=44&p=view_event">2026 Nationals</a>' }; },
+    });
+    const response = await app.request("/timing/events?trackUrl=https%3A%2F%2Fnorcalhobbies.liverc.com%2F");
+    expect(requestedUrl).toBe("https://norcalhobbies.liverc.com/events/");
+    expect(await response.json()).toEqual({ events: [{ name: "2026 Nationals", url: "https://norcalhobbies.liverc.com/results/?id=44&p=view_event" }] });
   });
 });

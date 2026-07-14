@@ -70,7 +70,16 @@ export function parseTrackList(html: string, sourceUrl = "https://live.liverc.co
 }
 
 export function parseEvents(html: string, sourceUrl: string) {
-  return links(html, sourceUrl).filter((link) => /event|results/i.test(link.url + link.label)).map((link) => ({ name: link.label, url: link.url }));
+  const source = new URL(sourceUrl);
+  const seen = new Set<string>();
+  return links(html, sourceUrl).flatMap((link) => {
+    const url = new URL(link.url);
+    const isEventPage = /\/events?\//i.test(url.pathname) && url.searchParams.has("id");
+    const isEventResult = url.pathname === "/results/" && url.searchParams.get("p") === "view_event" && url.searchParams.has("id");
+    if (url.hostname !== source.hostname || (!isEventPage && !isEventResult) || seen.has(url.toString())) return [];
+    seen.add(url.toString());
+    return [{ name: link.label, url: url.toString() }];
+  });
 }
 
 export function parseRaces(html: string, sourceUrl: string) {
