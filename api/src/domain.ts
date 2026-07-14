@@ -35,7 +35,7 @@ export interface TrackSegment {
   id: string;
   analysisId: string;
   startFrame: number;
-  initialBox?: BoundingBox;
+  initialBox: BoundingBox;
   createdAt: string;
 }
 

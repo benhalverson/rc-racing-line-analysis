@@ -20,6 +20,7 @@ export class App {
   readonly carDescription = signal('');
   readonly initialBox = signal<BoundingBox>({ x: 0, y: 0, width: 1, height: 1 });
   readonly reboxFrame = signal(0);
+  readonly reboxTimestampMs = signal(0);
   readonly reboxBox = signal<BoundingBox>({ x: 0, y: 0, width: 1, height: 1 });
   readonly reboxObservationFilePath = signal('');
   readonly reboxQualityArtifactPath = signal('');
@@ -79,7 +80,7 @@ export class App {
     if (!current) return;
     this.api.rebox(current.id, {
       frameNumber: this.reboxFrame(),
-      timestampMs: this.reboxFrame(),
+      timestampMs: this.reboxTimestampMs(),
       box: this.reboxBox(),
       observationFilePath: this.reboxObservationFilePath(),
       qualityArtifactPath: this.reboxQualityArtifactPath(),
@@ -170,7 +171,12 @@ export class App {
     this.updates = this.api
       .updates(id, (state) => this.connectionState.set(state))
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({ next: (message) => { this.analysis.set(message.analysis); this.loadTracking(message.analysis.id); } });
+      .subscribe({
+        next: (message) => {
+          this.analysis.set(message.analysis);
+          this.loadTracking(message.analysis.id);
+        },
+      });
   }
   private loadTracking(id: string) {
     this.api.tracking(id).subscribe({ next: (tracking) => this.tracking.set(tracking) });
