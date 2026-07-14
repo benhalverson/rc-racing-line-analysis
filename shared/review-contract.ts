@@ -44,7 +44,7 @@ export function correctLapCrossing(review: RacingLineReview, lapNumber: number, 
   if (index < 0 || !Number.isFinite(crossingSeconds) || crossingSeconds < 0) return review;
   const previousCrossing = index === 0 ? 0 : review.laps[index - 1].crossingSeconds;
   const nextCrossing = review.laps[index + 1]?.crossingSeconds;
-  if (crossingSeconds < previousCrossing || (nextCrossing !== undefined && crossingSeconds > nextCrossing)) return review;
+  if (crossingSeconds <= previousCrossing || (nextCrossing !== undefined && crossingSeconds >= nextCrossing)) return review;
   return {
     ...review,
     laps: review.laps.map((lap, lapIndex) => {
