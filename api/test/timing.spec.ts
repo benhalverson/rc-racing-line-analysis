@@ -7,6 +7,11 @@ import { AnalysisWorkflow } from "../src/workflow";
 const tracksHtml = '<a href="https://rcra.liverc.com/">RCRA</a><a href="https://other.liverc.com/">Other Track</a>';
 const raceHtml = '<a href="/results/?id=44&p=view_race_result">Buggy Heat 2/7</a>';
 const driverHtml = '<table><tr><td>Alex Racer</td>  <td>1</td></tr></table><div>Lap 1: 18.42s</div><div>Lap 2: 17.98s</div>';
+const timingRequest = {
+  trackHost: "rcra.liverc.com", trackName: "RCRA", trackUrl: "https://rcra.liverc.com/", eventName: "Nationals",
+  eventUrl: "https://rcra.liverc.com/events/1", raceId: "race-4", raceLabel: "Buggy Heat 2/7", roundLabel: "Qualifier",
+  classLabel: "Buggy", raceUrl: "https://rcra.liverc.com/results/?id=44&p=view_race_result", driverName: "Alex Racer", driverId: "driver-7",
+};
 
 describe("LiveRC timing adapter", () => {
   it("discovers tracks, events, and race-result links without slugifying names", () => {
@@ -56,6 +61,66 @@ describe("LiveRC timing adapter", () => {
     const retrieved = await app.request(`/timing/imports/${imported.id}`);
     expect(retrieved.status).toBe(200);
     expect(await retrieved.json()).toMatchObject({ id: imported.id, source: "liverc", raceId: null, driverId: "driver-7", parserVersion: "liverc-html-v1", sourceHash: imported.sourceHash, laps: [{ lapNumber: 1, lapTimeSeconds: 18.42, lapTimeText: "18.42", valid: true, statusText: null }, { lapNumber: 2, lapTimeSeconds: 17.98, lapTimeText: "17.98", valid: true, statusText: null }] });
+  });
+
+  it("preserves the complete canonical request through POST and GET", async () => {
+    const store = new InMemoryTimingStore();
+    const timing = { store, fetch: async (url: string) => ({ url, status: 200, html: driverHtml }) };
+    const app = createApp(new AnalysisWorkflow(new InMemoryAnalysisStore()), undefined, timing);
+    const response = await app.request("/timing/imports", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(timingRequest) });
+    expect(response.status).toBe(201);
+    const imported = await response.json() as Record<string, unknown>;
+    const retrieved = await app.request(`/timing/imports/${imported.id}`);
+    expect(await retrieved.json()).toEqual(imported);
+    expect(imported).toMatchObject({ ...timingRequest, driverName: "Alex Racer", normalizedDriverName: "alex racer" });
+  });
+
+  it.each([undefined, null, "", "   "]) ("normalizes raceId and driverId value %j to null", async (id) => {
+    let fetchCount = 0;
+    const app = createApp(new AnalysisWorkflow(new InMemoryAnalysisStore()), undefined, {
+      store: new InMemoryTimingStore(),
+      fetch: async (url: string) => { fetchCount += 1; return { url, status: 200, html: driverHtml }; },
+    });
+    const request = { ...timingRequest, raceId: id, driverId: id };
+    const response = await app.request("/timing/imports", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(request) });
+    expect(response.status).toBe(201);
+    expect(await response.json()).toMatchObject({ raceId: null, driverId: null });
+    expect(fetchCount).toBe(1);
+  });
+
+  it("rejects unknown fields before fetching or persisting", async () => {
+    let fetchCount = 0;
+    const store = new InMemoryTimingStore();
+    const app = createApp(new AnalysisWorkflow(new InMemoryAnalysisStore()), undefined, {
+      store,
+      fetch: async (url: string) => { fetchCount += 1; return { url, status: 200, html: driverHtml }; },
+    });
+    const response = await app.request("/timing/imports", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...timingRequest, unexpected: "value" }) });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "all selected track, event, race, and driver fields are required" });
+    expect(fetchCount).toBe(0);
+    expect(await store.getTimingImport("anything")).toBeUndefined();
+  });
+
+  it.each([123, true, {}, []]) ("rejects invalid ID type %j", async (id) => {
+    let fetchCount = 0;
+    const app = createApp(new AnalysisWorkflow(new InMemoryAnalysisStore()), undefined, {
+      store: new InMemoryTimingStore(),
+      fetch: async (url: string) => { fetchCount += 1; return { url, status: 200, html: driverHtml }; },
+    });
+    const response = await app.request("/timing/imports", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...timingRequest, raceId: id }) });
+    expect(response.status).toBe(400);
+    expect(fetchCount).toBe(0);
+  });
+
+  it("preserves the required-field validation response", async () => {
+    const app = createApp(new AnalysisWorkflow(new InMemoryAnalysisStore()), undefined, {
+      store: new InMemoryTimingStore(),
+      fetch: async (url: string) => ({ url, status: 200, html: driverHtml }),
+    });
+    const response = await app.request("/timing/imports", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...timingRequest, driverName: " " }) });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "all selected track, event, race, and driver fields are required" });
   });
 
   it("finds a hyphenated LiveRC track when the query omits punctuation", async () => {

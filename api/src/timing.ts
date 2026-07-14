@@ -120,9 +120,12 @@ export async function importTiming(input: TimingImportRequest, fetcher: TimingFe
   if (page.status < 200 || page.status >= 300) throw new Error(`LiveRC returned HTTP ${page.status}`);
   const result = parseDriverResult(page.html, input.driverName);
   const value: TimingImport = {
-    ...input, raceId: input.raceId ?? null, id: randomUUID(), source: "liverc", fetchedAt: new Date().toISOString(), parserVersion: "liverc-html-v1",
+    id: randomUUID(), source: "liverc", trackHost: input.trackHost, trackName: input.trackName, trackUrl: input.trackUrl,
+    eventName: input.eventName, eventUrl: input.eventUrl, raceId: input.raceId ?? null, raceLabel: input.raceLabel,
+    roundLabel: input.roundLabel, classLabel: input.classLabel, raceUrl: input.raceUrl,
     sourceHash: createHash("sha256").update(page.html).digest("hex"), driverName: result.driverName,
     normalizedDriverName: normalizeDriverName(result.driverName), driverId: result.driverId ?? input.driverId ?? null, laps: result.laps,
+    fetchedAt: new Date().toISOString(), parserVersion: "liverc-html-v1",
   };
   await store.saveTimingImport(value);
   return value;

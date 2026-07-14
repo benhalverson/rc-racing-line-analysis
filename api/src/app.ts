@@ -3,7 +3,6 @@ import { z } from "zod";
 import { errorMessage } from "./errors";
 import type { AnalysisProgressRoom } from "./progress-room";
 import type { AnalysisWorkflow } from "./workflow";
-import type { TimingImportRequest } from "../../shared/timing-contract";
 import { importTiming, normalizeTrackUrl, parseDrivers, parseEvents, parseRaces, parseTrackList, type TimingFetcher, type TimingStore } from "./timing";
 
 export interface AnalysisRuntime {
@@ -60,6 +59,31 @@ const createAnalysis = z.object({
   videoName: z.string().trim().min(1),
   carDescription: z.string().trim().optional(),
 });
+
+const timingImportRequiredFields = {
+  trackHost: z.string().refine((value) => value.trim().length > 0),
+  trackName: z.string().refine((value) => value.trim().length > 0),
+  trackUrl: z.string().refine((value) => value.trim().length > 0),
+  eventName: z.string().refine((value) => value.trim().length > 0),
+  eventUrl: z.string().refine((value) => value.trim().length > 0),
+  raceLabel: z.string().refine((value) => value.trim().length > 0),
+  roundLabel: z.string().refine((value) => value.trim().length > 0),
+  classLabel: z.string().refine((value) => value.trim().length > 0),
+  raceUrl: z.string().refine((value) => value.trim().length > 0),
+  driverName: z.string().refine((value) => value.trim().length > 0),
+};
+
+const timingImportId = z.preprocess(
+  (value) => value === undefined || value === null || (typeof value === "string" && !value.trim()) ? null : value,
+  z.string().trim().nullable(),
+);
+
+const timingImportRequestSchema = z.object({
+  ...timingImportRequiredFields,
+  raceId: timingImportId,
+  driverId: timingImportId,
+}).strict();
+
 export type TimingRuntime = { fetch: TimingFetcher; store: TimingStore };
 
 export function createApp(workflow: AnalysisWorkflow, runtime?: AnalysisRuntime, timing?: TimingRuntime) {
@@ -109,14 +133,9 @@ export function createApp(workflow: AnalysisWorkflow, runtime?: AnalysisRuntime,
     if (!timing) return c.json({ error: "timing import is unavailable" }, 503);
     try {
       const body = await c.req.json();
-      const required = ["trackHost", "trackName", "trackUrl", "eventName", "eventUrl", "raceLabel", "roundLabel", "classLabel", "raceUrl", "driverName"];
-      if (required.some((key) => typeof body[key] !== "string" || !body[key].trim())) return c.json({ error: "all selected track, event, race, and driver fields are required" }, 400);
-      const input: TimingImportRequest = {
-        ...body,
-        raceId: optionalId(body.raceId),
-        driverId: optionalId(body.driverId),
-      };
-      const value = await importTiming(input, timing.fetch, timing.store);
+      const parsed = timingImportRequestSchema.safeParse(body);
+      if (!parsed.success) return c.json({ error: "all selected track, event, race, and driver fields are required" }, 400);
+      const value = await importTiming(parsed.data, timing.fetch, timing.store);
       return c.json(value, 201);
     } catch (error) {
       return c.json({ error: error instanceof Error ? error.message : "unable to import LiveRC timing" }, 400);
@@ -216,10 +235,6 @@ export function createApp(workflow: AnalysisWorkflow, runtime?: AnalysisRuntime,
     }
   });
   return app;
-}
-
-function optionalId(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function requiredQuery(c: { req: { query: (name: string) => string | undefined } }, name: string) {
