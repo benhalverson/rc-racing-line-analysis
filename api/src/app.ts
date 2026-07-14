@@ -141,7 +141,7 @@ export function createApp(workflow: AnalysisWorkflow, runtime?: AnalysisRuntime,
       const value = await importTiming(parsed.data, timing.fetch, timing.store);
       return c.json(value, 201);
     } catch (error) {
-      return c.json({ error: error instanceof Error ? error.message : "unable to import LiveRC timing" }, 400);
+      return timingRouteError(c, error, "unable to import LiveRC timing");
     }
   });
   app.get("/timing/imports", async (c) => {

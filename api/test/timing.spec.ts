@@ -168,6 +168,22 @@ describe("LiveRC timing adapter", () => {
     expect(await drivers.json()).toEqual({ error: "LiveRC returned HTTP 503" });
   });
 
+  it("returns upstream import errors as bad gateway without persisting", async () => {
+    const store = new InMemoryTimingStore();
+    const app = createApp(new AnalysisWorkflow(new InMemoryAnalysisStore()), undefined, {
+      store,
+      fetch: async (url: string) => ({ url, status: 503, html: "" }),
+    });
+    const response = await app.request("/timing/imports", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(timingRequest),
+    });
+    expect(response.status).toBe(502);
+    expect(await response.json()).toEqual({ error: "LiveRC returned HTTP 503" });
+    expect(await store.listTimingImports(20)).toEqual([]);
+  });
+
   it("discovers races and drivers through the public API boundary", async () => {
     const app = createApp(new AnalysisWorkflow(new InMemoryAnalysisStore()), undefined, {
       store: new InMemoryTimingStore(),
