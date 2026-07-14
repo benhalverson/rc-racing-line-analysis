@@ -22,6 +22,8 @@ const validCandidate = {
   rotationDegrees: 0,
   cropValid: true,
 };
+const failingReprojectionError = 4;
+const insufficientInliers = 2;
 
 describe("MarkerBasedStabilizationProvider", () => {
   it("keeps a usable affine transform when its diagnostics pass", async () => {
@@ -37,7 +39,7 @@ describe("MarkerBasedStabilizationProvider", () => {
   it("escalates to a homography when affine reprojection diagnostics fail", async () => {
     const estimator: MarkerTransformEstimator = {
       estimate: vi.fn((model) => model === "affine"
-        ? { ...validCandidate, reprojectionError: 4 }
+        ? { ...validCandidate, reprojectionError: failingReprojectionError }
         : validCandidate),
     };
 
@@ -50,7 +52,7 @@ describe("MarkerBasedStabilizationProvider", () => {
 
   it("marks transforms unusable when marker and crop diagnostics fail", async () => {
     const estimator: MarkerTransformEstimator = {
-      estimate: vi.fn(() => ({ ...validCandidate, inlierCount: 2, cropValid: false })),
+      estimate: vi.fn(() => ({ ...validCandidate, inlierCount: insufficientInliers, cropValid: false })),
     };
 
     const artifacts = await new MarkerBasedStabilizationProvider(markers(1, 2), estimator).stabilize();
