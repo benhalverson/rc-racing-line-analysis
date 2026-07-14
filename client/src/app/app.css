@@ -110,3 +110,15 @@ button.quiet {
   display: flex;
   gap: 10px;
 }
+.section-heading { display: flex; justify-content: space-between; align-items: start; }
+.step { color: #e4c985; font-size: .75rem; letter-spacing: .12em; }
+.inline-form { display: flex; gap: 10px; align-items: center; }
+.inline-form input { flex: 1; }
+.choice-list { display: grid; gap: 8px; margin: 16px 0; }
+.choice-list button { display: flex; justify-content: space-between; background: #202633; color: #e9edf3; text-align: left; }
+.choice-list button.selected { outline: 2px solid #c6a15b; }
+small { color: #9ca7b5; }
+select { width: 100%; box-sizing: border-box; border: 1px solid #343d4c; border-radius: 7px; background: #0e1118; color: #fff; padding: 13px; font: inherit; margin-bottom: 14px; }
+.success { color: #91d6aa; }
+.error { color: #ef9a9a; }
+@media (max-width: 600px) { .inline-form { flex-direction: column; align-items: stretch; } }

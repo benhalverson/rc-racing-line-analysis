@@ -1,4 +1,4 @@
-import type { Analysis, AnalysisState } from './domain.js';
+import type { Analysis, AnalysisState } from './domain';
 
 export type AnalysisProgressMessage = {
   type: 'snapshot' | 'updated';

@@ -1,8 +1,9 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { errorMessage } from "./errors.js";
-import type { AnalysisProgressRoom } from "./progress-room.js";
-import type { AnalysisWorkflow } from "./workflow.js";
+import { errorMessage } from "./errors";
+import type { AnalysisProgressRoom } from "./progress-room";
+import type { AnalysisWorkflow } from "./workflow";
+import { fetchTimingPage, importTiming, normalizeLiveRcUrl, normalizeRaceResultUrl, normalizeTrackUrl, parseDrivers, parseEvents, parseRaces, parseTrackList, TimingUpstreamError, type TimingFetcher, type TimingStore } from "./timing";
 
 export interface AnalysisRuntime {
   workflow: {
@@ -58,9 +59,102 @@ const createAnalysis = z.object({
   videoName: z.string().trim().min(1),
   carDescription: z.string().trim().optional(),
 });
-export function createApp(workflow: AnalysisWorkflow, runtime?: AnalysisRuntime) {
+
+const timingImportRequiredFields = {
+  trackHost: z.string().refine((value) => value.trim().length > 0),
+  trackName: z.string().refine((value) => value.trim().length > 0),
+  trackUrl: z.string().refine((value) => value.trim().length > 0),
+  eventName: z.string().refine((value) => value.trim().length > 0),
+  eventUrl: z.string().refine((value) => value.trim().length > 0),
+  raceLabel: z.string().refine((value) => value.trim().length > 0),
+  roundLabel: z.string().refine((value) => value.trim().length > 0),
+  classLabel: z.string().refine((value) => value.trim().length > 0),
+  raceUrl: z.string().refine((value) => value.trim().length > 0),
+  driverName: z.string().refine((value) => value.trim().length > 0),
+};
+
+const timingImportId = z.preprocess(
+  (value) => value === undefined || value === null || (typeof value === "string" && !value.trim()) ? null : value,
+  z.string().trim().nullable(),
+);
+
+const timingImportRequestSchema = z.object({
+  ...timingImportRequiredFields,
+  raceId: timingImportId,
+  driverId: timingImportId,
+}).strict();
+
+export type TimingRuntime = { fetch: TimingFetcher; store: TimingStore };
+
+export function createApp(workflow: AnalysisWorkflow, runtime?: AnalysisRuntime, timing?: TimingRuntime) {
   const app = new Hono();
   app.get("/health", (c) => c.json({ ok: true }));
+  app.get("/timing/tracks", async (c) => {
+    if (!timing) return c.json({ error: "timing import is unavailable" }, 503);
+    try {
+      const page = await fetchTimingPage(timing.fetch, "https://live.liverc.com/");
+      const query = searchKey(c.req.query("query") ?? "");
+      const tracks = parseTrackList(page.html, page.url).filter((track) => !query || searchKey(`${track.name} ${track.host}`).includes(query));
+      return c.json({ tracks });
+    } catch (error) {
+      return timingRouteError(c, error, "unable to read LiveRC tracks");
+    }
+  });
+  app.get("/timing/events", async (c) => {
+    if (!timing) return c.json({ error: "timing import is unavailable" }, 503);
+    try {
+      const trackUrl = normalizeTrackUrl(requiredQuery(c, "trackUrl"));
+      const eventsUrl = new URL("/events/", trackUrl).toString();
+      const page = await fetchTimingPage(timing.fetch, eventsUrl);
+      return c.json({ events: parseEvents(page.html, page.url) });
+    } catch (error) {
+      return timingRouteError(c, error, "unable to read LiveRC events");
+    }
+  });
+  app.get("/timing/races", async (c) => {
+    if (!timing) return c.json({ error: "timing import is unavailable" }, 503);
+    try {
+      const page = await fetchTimingPage(timing.fetch, normalizeLiveRcUrl(requiredQuery(c, "eventUrl"), "eventUrl").toString());
+      return c.json({ races: parseRaces(page.html, page.url) });
+    } catch (error) {
+      return timingRouteError(c, error, "unable to read LiveRC races");
+    }
+  });
+  app.get("/timing/drivers", async (c) => {
+    if (!timing) return c.json({ error: "timing import is unavailable" }, 503);
+    try {
+      const page = await fetchTimingPage(timing.fetch, normalizeLiveRcUrl(requiredQuery(c, "raceUrl"), "raceUrl").toString());
+      return c.json({ drivers: parseDrivers(page.html) });
+    } catch (error) {
+      return timingRouteError(c, error, "unable to read LiveRC drivers");
+    }
+  });
+  app.post("/timing/imports", async (c) => {
+    if (!timing) return c.json({ error: "timing import is unavailable" }, 503);
+    try {
+      const body = await c.req.json();
+      const parsed = timingImportRequestSchema.safeParse(body);
+      if (!parsed.success) return c.json({ error: "all selected track, event, race, and driver fields are required" }, 400);
+      normalizeTrackUrl(parsed.data.trackUrl);
+      normalizeLiveRcUrl(parsed.data.eventUrl, "eventUrl");
+      normalizeRaceResultUrl(parsed.data.raceUrl);
+      const value = await importTiming(parsed.data, timing.fetch, timing.store);
+      return c.json(value, 201);
+    } catch (error) {
+      return timingRouteError(c, error, "unable to import LiveRC timing");
+    }
+  });
+  app.get("/timing/imports", async (c) => {
+    if (!timing) return c.json({ error: "timing import is unavailable" }, 503);
+    const rawLimit = Number(c.req.query("limit") ?? "20");
+    const limit = Number.isFinite(rawLimit) ? Math.min(50, Math.max(1, Math.floor(rawLimit))) : 20;
+    return c.json({ imports: await timing.store.listTimingImports(limit) });
+  });
+  app.get("/timing/imports/:id", async (c) => {
+    if (!timing) return c.json({ error: "timing import is unavailable" }, 503);
+    const value = await timing.store.getTimingImport(c.req.param("id"));
+    return value ? c.json(value) : c.json({ error: "timing import not found" }, 404);
+  });
   app.post("/analyses", async (c) => {
     const parsed = createAnalysis.safeParse(await c.req.json());
     if (!parsed.success)
@@ -150,6 +244,20 @@ export function createApp(workflow: AnalysisWorkflow, runtime?: AnalysisRuntime)
     }
   });
   return app;
+}
+
+function requiredQuery(c: { req: { query: (name: string) => string | undefined } }, name: string) {
+  const value = c.req.query(name);
+  if (!value?.trim()) throw new Error(`${name} is required`);
+  return value.trim();
+}
+
+function timingRouteError(c: { json: (body: { error: string }, status: 400 | 502) => Response }, error: unknown, fallback: string) {
+  return c.json({ error: error instanceof Error ? error.message : fallback }, error instanceof TimingUpstreamError ? 502 : 400);
+}
+
+function searchKey(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
 async function getOrCreateInstance(runtime: AnalysisRuntime | undefined, id: string) {

@@ -1,5 +1,5 @@
-import type { Analysis } from "./domain.js";
-import { errorMessage } from "./errors.js";
+import type { Analysis } from "./domain";
+import { errorMessage } from "./errors";
 
 const phases = [
   { name: 'calibration', phase: 'calibrating' as const, progress: 0.25, checkpoint: 'calibration-complete' },

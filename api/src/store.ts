@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { Analysis, AnalysisStore, CreateAnalysisInput } from "./domain.js";
+import type { Analysis, AnalysisStore, CreateAnalysisInput } from "./domain";
 
 export class InMemoryAnalysisStore implements AnalysisStore {
   private readonly analyses = new Map<string, Analysis>();

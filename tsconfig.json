@@ -9,5 +9,5 @@
     "noEmit": true,
     "types": ["node"]
   },
-  "include": ["api/src/**/*.ts", "api/test/**/*.ts", "api/worker-configuration.d.ts"]
+  "include": ["api/src/**/*.ts", "api/test/**/*.ts", "shared/**/*.ts", "api/worker-configuration.d.ts"]
 }

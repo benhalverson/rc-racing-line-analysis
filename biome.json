@@ -3,6 +3,7 @@
   "files": {
     "includes": [
       "api/**/*.ts",
+      "shared/**/*.ts",
       "client/src/**/*.ts",
       "client/src/**/*.html",
       "!api/.wrangler/**",
