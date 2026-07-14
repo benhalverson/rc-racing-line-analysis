@@ -1,8 +1,9 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { errorMessage } from "./errors.js";
-import type { AnalysisProgressRoom } from "./progress-room.js";
-import type { AnalysisWorkflow } from "./workflow.js";
+import { errorMessage } from "./errors";
+import type { AnalysisProgressRoom } from "./progress-room";
+import type { AnalysisWorkflow } from "./workflow";
+import type { TimingImportRequest } from "../../shared/timing-contract";
 import { importTiming, normalizeTrackUrl, parseDrivers, parseEvents, parseRaces, parseTrackList, type TimingFetcher, type TimingStore } from "./timing";
 
 export interface AnalysisRuntime {
@@ -110,7 +111,12 @@ export function createApp(workflow: AnalysisWorkflow, runtime?: AnalysisRuntime,
       const body = await c.req.json();
       const required = ["trackHost", "trackName", "trackUrl", "eventName", "eventUrl", "raceLabel", "roundLabel", "classLabel", "raceUrl", "driverName"];
       if (required.some((key) => typeof body[key] !== "string" || !body[key].trim())) return c.json({ error: "all selected track, event, race, and driver fields are required" }, 400);
-      const value = await importTiming(body, timing.fetch, timing.store);
+      const input: TimingImportRequest = {
+        ...body,
+        raceId: optionalId(body.raceId),
+        driverId: optionalId(body.driverId),
+      };
+      const value = await importTiming(input, timing.fetch, timing.store);
       return c.json(value, 201);
     } catch (error) {
       return c.json({ error: error instanceof Error ? error.message : "unable to import LiveRC timing" }, 400);
@@ -210,6 +216,10 @@ export function createApp(workflow: AnalysisWorkflow, runtime?: AnalysisRuntime,
     }
   });
   return app;
+}
+
+function optionalId(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function requiredQuery(c: { req: { query: (name: string) => string | undefined } }, name: string) {

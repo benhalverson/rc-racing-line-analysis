@@ -47,13 +47,15 @@ describe("LiveRC timing adapter", () => {
     const store = new InMemoryTimingStore();
     const timing = { store, fetch: async (url: string) => ({ url, status: 200, html: driverHtml }) };
     const app = createApp(new AnalysisWorkflow(new InMemoryAnalysisStore()), undefined, timing);
-    const response = await app.request("/timing/imports", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ trackHost: "rcra.liverc.com", trackName: "RCRA", trackUrl: "https://rcra.liverc.com/", eventName: "Nationals", eventUrl: "https://rcra.liverc.com/events/1", raceLabel: "Buggy Heat 2/7", roundLabel: "Qualifier", classLabel: "Buggy", raceUrl: "https://rcra.liverc.com/results/?id=44&p=view_race_result", driverName: "Alex Racer" }) });
+    const response = await app.request("/timing/imports", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ trackHost: "rcra.liverc.com", trackName: "RCRA", trackUrl: "https://rcra.liverc.com/", eventName: "Nationals", eventUrl: "https://rcra.liverc.com/events/1", raceLabel: "Buggy Heat 2/7", roundLabel: "Qualifier", classLabel: "Buggy", raceUrl: "https://rcra.liverc.com/results/?id=44&p=view_race_result", driverName: "Alex Racer", driverId: "driver-7" }) });
     expect(response.status).toBe(201);
     const imported = await response.json() as { id: string; source: string; normalizedDriverName: string; laps: unknown[]; sourceHash: string };
-    expect(imported).toMatchObject({ source: "liverc", normalizedDriverName: "alex racer" });
+    expect(imported).toMatchObject({ source: "liverc", normalizedDriverName: "alex racer", raceId: null, driverId: "driver-7", parserVersion: "liverc-html-v1" });
     expect(imported.laps).toHaveLength(2);
     expect(imported.sourceHash).toHaveLength(64);
-    expect((await app.request(`/timing/imports/${imported.id}`)).status).toBe(200);
+    const retrieved = await app.request(`/timing/imports/${imported.id}`);
+    expect(retrieved.status).toBe(200);
+    expect(await retrieved.json()).toMatchObject({ id: imported.id, source: "liverc", raceId: null, driverId: "driver-7", parserVersion: "liverc-html-v1", sourceHash: imported.sourceHash, laps: [{ lapNumber: 1, lapTimeSeconds: 18.42, lapTimeText: "18.42", valid: true, statusText: null }, { lapNumber: 2, lapTimeSeconds: 17.98, lapTimeText: "17.98", valid: true, statusText: null }] });
   });
 
   it("finds a hyphenated LiveRC track when the query omits punctuation", async () => {

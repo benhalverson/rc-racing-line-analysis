@@ -1,8 +1,8 @@
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { z } from "zod";
-import { analyses } from "./db/schema.js";
-import type { Analysis, AnalysisStore, CreateAnalysisInput } from "./domain.js";
+import { analyses } from "./db/schema";
+import type { Analysis, AnalysisStore, CreateAnalysisInput } from "./domain";
 
 const analysisRowSchema = z.object({
   id: z.string(),

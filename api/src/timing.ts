@@ -1,35 +1,7 @@
 import { createHash } from "node:crypto";
 import { randomUUID } from "node:crypto";
-
-export type TimingLap = {
-  lapNumber: number;
-  lapTimeSeconds: number | null;
-  lapTimeText: string;
-  valid: boolean | null;
-  statusText: string | null;
-};
-
-export type TimingImport = {
-  id: string;
-  source: "liverc";
-  trackHost: string;
-  trackName: string;
-  trackUrl: string;
-  eventName: string;
-  eventUrl: string;
-  raceId: string | null;
-  raceLabel: string;
-  roundLabel: string;
-  classLabel: string;
-  raceUrl: string;
-  driverName: string;
-  normalizedDriverName: string;
-  driverId: string | null;
-  fetchedAt: string;
-  parserVersion: string;
-  sourceHash: string;
-  laps: TimingLap[];
-};
+import type { TimingImport, TimingImportRequest, TimingLap } from "../../shared/timing-contract";
+export type { TimingImport, TimingImportRequest, TimingLap } from "../../shared/timing-contract";
 
 export type TimingPage = { url: string; status: number; html: string };
 export type TimingFetcher = (url: string) => Promise<TimingPage>;
@@ -143,14 +115,14 @@ function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-export async function importTiming(input: Omit<TimingImport, "id" | "source" | "fetchedAt" | "parserVersion" | "sourceHash" | "driverName" | "normalizedDriverName" | "driverId" | "laps"> & { driverName: string; driverId?: string }, fetcher: TimingFetcher, store: TimingStore) {
+export async function importTiming(input: TimingImportRequest, fetcher: TimingFetcher, store: TimingStore) {
   const page = await fetcher(input.raceUrl);
   if (page.status < 200 || page.status >= 300) throw new Error(`LiveRC returned HTTP ${page.status}`);
   const result = parseDriverResult(page.html, input.driverName);
   const value: TimingImport = {
-    ...input, id: randomUUID(), source: "liverc", fetchedAt: new Date().toISOString(), parserVersion: "liverc-html-v1",
+    ...input, raceId: input.raceId ?? null, id: randomUUID(), source: "liverc", fetchedAt: new Date().toISOString(), parserVersion: "liverc-html-v1",
     sourceHash: createHash("sha256").update(page.html).digest("hex"), driverName: result.driverName,
-    normalizedDriverName: normalizeDriverName(result.driverName), driverId: result.driverId, laps: result.laps,
+    normalizedDriverName: normalizeDriverName(result.driverName), driverId: result.driverId ?? input.driverId ?? null, laps: result.laps,
   };
   await store.saveTimingImport(value);
   return value;

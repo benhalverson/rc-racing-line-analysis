@@ -1,4 +1,4 @@
-import type { Analysis, AnalysisStore, CreateAnalysisInput } from "./domain.js";
+import type { Analysis, AnalysisStore, CreateAnalysisInput } from "./domain";
 
 const transitions: Record<Analysis["state"], Analysis["state"][]> = {
   draft: ["queued"],

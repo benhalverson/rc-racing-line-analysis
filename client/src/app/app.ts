@@ -92,7 +92,7 @@ export class App {
     const track = this.selectedTrack(); const event = this.selectedEvent(); const race = this.selectedRace(); const driver = this.selectedDriver();
     if (!track || !event || !race || !driver) return;
     this.timingError.set('');
-    this.timingApi.import({ trackHost: track.host, trackName: track.name, trackUrl: track.url, eventName: event.name, eventUrl: event.url, raceId: race.id ?? '', raceLabel: race.label, roundLabel: race.label, classLabel: this.classLabel(), raceUrl: race.url, driverName: driver.name, ...(driver.driverId ? { driverId: driver.driverId } : {}) }).subscribe({ next: (value) => { this.timingImport.set(value); this.message.set(`Imported ${value.laps.length} laps for ${value.driverName}.`); }, error: (error: { error?: { error?: string } }) => this.timingError.set(error.error?.error ?? 'Unable to import timing.') });
+    this.timingApi.import({ trackHost: track.host, trackName: track.name, trackUrl: track.url, eventName: event.name, eventUrl: event.url, raceId: race.id, raceLabel: race.label, roundLabel: race.label, classLabel: this.classLabel(), raceUrl: race.url, driverName: driver.name, ...(driver.driverId ? { driverId: driver.driverId } : {}) }).subscribe({ next: (value) => { this.timingImport.set(value); this.message.set(`Imported ${value.laps.length} laps for ${value.driverName}.`); }, error: (error: { error?: { error?: string } }) => this.timingError.set(error.error?.error ?? 'Unable to import timing.') });
   }
   private action(action: 'queue' | 'start' | 'cancel' | 'resume') {
     const current = this.analysis();

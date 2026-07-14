@@ -1,5 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
-import { createProgressMessage, isTerminalAnalysisState, type AnalysisProgressMessage } from "./progress-room-protocol.js";
+import { createProgressMessage, isTerminalAnalysisState, type AnalysisProgressMessage } from "./progress-room-protocol";
 
 export class AnalysisProgressRoom extends DurableObject<Env> {
   async seed(analysis: Parameters<typeof createProgressMessage>[0]): Promise<void> {

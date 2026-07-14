@@ -1,8 +1,8 @@
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloudflare:workers";
-import type { Analysis } from "./domain.js";
-import { D1AnalysisStore } from "./d1-store.js";
-import { executeAnalysisProcessing, type ProcessingStep } from "./processing-runner.js";
-import { AnalysisWorkflow } from "./workflow.js";
+import type { Analysis } from "./domain";
+import { D1AnalysisStore } from "./d1-store";
+import { executeAnalysisProcessing, type ProcessingStep } from "./processing-runner";
+import { AnalysisWorkflow } from "./workflow";
 
 export class AnalysisProcessingWorkflow extends WorkflowEntrypoint<Env, { analysisId: string }> {
   async run(event: WorkflowEvent<{ analysisId: string }>, step: WorkflowStep): Promise<void> {
