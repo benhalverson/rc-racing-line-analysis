@@ -320,7 +320,7 @@ export function parseDriverResult(
 					lapTimeSeconds: Number(match[3]),
 					lapTimeText: match[3],
 					valid: true,
-					statusText: `${match[4]} · ${match[2]}th`,
+					statusText: `${match[4]} · P${match[2]}`,
 				}))
 		: [];
 	const tableLaps = rows.flatMap((row) => {

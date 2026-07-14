@@ -70,10 +70,15 @@ describe("LiveRC timing adapter", () => {
     expect(parseDriverResult(html, "BEN HALVERSON")).toMatchObject({ driverName: "BEN HALVERSON", laps: [{ lapNumber: 1, lapTimeSeconds: 28.58, statusText: "4th" }, { lapNumber: 2, lapTimeSeconds: 22.966, statusText: "4th" }] });
   });
 
-  it("parses LiveRC's embedded racerLaps data from the race result page", () => {
-    const html = `<script>racerLaps[566775] = { 'driverName' : 'BEN HALVERSON', 'laps' : [ { 'lapNum' : '1', 'pos' : '4', 'time' : '28.58', 'pace' : '11/5:14.385' }, { 'lapNum' : '2', 'pos' : '4', 'time' : '22.966', 'pace' : '12/5:09.279' } ] };</script>`;
-    expect(parseDriverResult(html, "BEN HALVERSON")).toMatchObject({ driverId: "566775", laps: [{ lapNumber: 1, lapTimeSeconds: 28.58 }, { lapNumber: 2, lapTimeSeconds: 22.966 }] });
-  });
+	it("parses LiveRC's embedded racerLaps data from the race result page", () => {
+		const html = `<script>racerLaps[566775] = { 'driverName' : 'BEN HALVERSON', 'laps' : [ { 'lapNum' : '1', 'pos' : '1', 'time' : '28.58', 'pace' : '11/5:14.385' }, { 'lapNum' : '2', 'pos' : '2', 'time' : '22.966', 'pace' : '12/5:09.279' }, { 'lapNum' : '3', 'pos' : '3', 'time' : '23.1', 'pace' : '13/5:10.000' }, { 'lapNum' : '4', 'pos' : '4', 'time' : '24.2', 'pace' : '14/5:11.000' } ] };</script>`;
+		expect(parseDriverResult(html, "BEN HALVERSON")).toMatchObject({ driverId: "566775", laps: [
+			{ lapNumber: 1, lapTimeSeconds: 28.58, statusText: "11/5:14.385 · P1" },
+			{ lapNumber: 2, lapTimeSeconds: 22.966, statusText: "12/5:09.279 · P2" },
+			{ lapNumber: 3, lapTimeSeconds: 23.1, statusText: "13/5:10.000 · P3" },
+			{ lapNumber: 4, lapTimeSeconds: 24.2, statusText: "14/5:11.000 · P4" },
+		] });
+	});
 
   it("exposes selected-driver imports and rejects pages without individual laps", async () => {
     const store = new InMemoryTimingStore();
