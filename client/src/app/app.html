@@ -64,7 +64,7 @@
         {{ current.checkpoint || 'none' }} · Connection: {{ connectionState() }}
       </p>
       @if (tracking(); as tracking) {
-        <p class="meta">Tracking quality: {{ tracking.observations.at(-1)?.quality || 'awaiting observations' }} · {{ tracking.segments.length }} segment(s)</p>
+        <p class="meta" role="status">Tracking quality: {{ tracking.observations.at(-1)?.quality || 'awaiting observations' }} · {{ tracking.segments.length }} segment(s)</p>
         @if (tracking.observations.at(-1)?.quality === 'lost') {
           <fieldset>
             <legend>Draw a new box to resume tracking</legend>

@@ -178,7 +178,7 @@ export function createApp(workflow: AnalysisWorkflow, runtime?: AnalysisRuntime,
   app.post("/analyses", async (c) => {
     const parsed = createAnalysis.safeParse(await c.req.json());
     if (!parsed.success)
-      return c.json({ error: "videoPath, videoName, and an initialBox are required" }, 400);
+      return c.json({ error: "videoPath, videoName, and an initial box are required" }, 400);
     return c.json(await workflow.createDraft(parsed.data), 201);
   });
   app.get("/analyses/:id", (c) =>
