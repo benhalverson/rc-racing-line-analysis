@@ -3,7 +3,8 @@ import { Component, DestroyRef, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import type { Subscription } from 'rxjs';
 import { AnalysisApi, type Analysis, type AnalysisConnectionState } from './app/analysis-api';
-import { TimingApi, type TimingDriver, type TimingEvent, type TimingImport, type TimingRace, type TimingTrack } from './app/timing-api';
+import { TimingApi, type TimingDriver, type TimingEvent, type TimingRace, type TimingTrack } from './app/timing-api';
+import { buildTimingImportRequest, emptyTimingSelection, selectTimingDriver, selectTimingEvent, selectTimingRace, selectTimingTrack, timingDriverOptionKey, timingImportReadiness, type TimingSelection } from './app/timing-selection';
 @Component({
   selector: 'app-root',
   imports: [DecimalPipe],
@@ -24,12 +25,7 @@ export class App {
   readonly events = signal<TimingEvent[]>([]);
   readonly races = signal<TimingRace[]>([]);
   readonly drivers = signal<TimingDriver[]>([]);
-  readonly selectedTrack = signal<TimingTrack | undefined>(undefined);
-  readonly selectedEvent = signal<TimingEvent | undefined>(undefined);
-  readonly selectedRace = signal<TimingRace | undefined>(undefined);
-  readonly selectedDriver = signal<TimingDriver | undefined>(undefined);
-  readonly classLabel = signal('');
-  readonly timingImport = signal<TimingImport | undefined>(undefined);
+  readonly timingSelection = signal<TimingSelection>(emptyTimingSelection());
   readonly timingError = signal('');
   readonly trackQuery = signal('');
   selectVideo(event: Event) {
@@ -69,30 +65,40 @@ export class App {
   }
   chooseTrack(track: TimingTrack | undefined) {
     if (!track) return;
-    this.selectedTrack.set(track); this.selectedEvent.set(undefined); this.selectedRace.set(undefined); this.selectedDriver.set(undefined); this.events.set([]); this.races.set([]); this.drivers.set([]); this.classLabel.set(''); this.timingImport.set(undefined); this.timingError.set('');
+    this.timingSelection.set(selectTimingTrack(this.timingSelection(), track));
+    this.events.set([]); this.races.set([]); this.drivers.set([]); this.timingError.set('');
     const trackUrl = track.url?.trim();
     if (!trackUrl) {
       this.timingError.set('Unable to load archived events: no track URL was selected.');
       return;
     }
-    this.timingApi.events(trackUrl).subscribe({ next: (value) => this.events.set(value.events), error: (error) => this.timingError.set(timingError(error, 'Unable to load archived events.')) });
+    this.timingApi.events(trackUrl).subscribe({ next: (value) => { if (this.timingSelection().track === track) this.events.set(value.events); }, error: (error) => { if (this.timingSelection().track === track) this.timingError.set(timingError(error, 'Unable to load archived events.')); } });
   }
   chooseEvent(event: TimingEvent | undefined) {
     if (!event) return;
-    this.selectedEvent.set(event); this.selectedRace.set(undefined); this.selectedDriver.set(undefined); this.races.set([]); this.drivers.set([]);
-    this.timingApi.races(event.url).subscribe({ next: (value) => this.races.set(value.races), error: (error) => this.timingError.set(timingError(error, 'Unable to load races for this event.')) });
+    this.timingSelection.set(selectTimingEvent(this.timingSelection(), event));
+    this.races.set([]); this.drivers.set([]); this.timingError.set('');
+    this.timingApi.races(event.url).subscribe({ next: (value) => { if (this.timingSelection().event === event) this.races.set(value.races); }, error: (error) => { if (this.timingSelection().event === event) this.timingError.set(timingError(error, 'Unable to load races for this event.')); } });
   }
   chooseRace(race: TimingRace | undefined) {
     if (!race) return;
-    this.selectedRace.set(race); this.classLabel.set(race.label); this.selectedDriver.set(undefined); this.drivers.set([]);
-    this.timingApi.drivers(race.url).subscribe({ next: (value) => this.drivers.set(value.drivers), error: (error) => this.timingError.set(timingError(error, 'Unable to load drivers for this race.')) });
+    this.timingSelection.set(selectTimingRace(this.timingSelection(), race));
+    this.drivers.set([]); this.timingError.set('');
+    this.timingApi.drivers(race.url).subscribe({ next: (value) => { if (this.timingSelection().race === race) this.drivers.set(value.drivers); }, error: (error) => { if (this.timingSelection().race === race) this.timingError.set(timingError(error, 'Unable to load drivers for this race.')); } });
   }
-  chooseDriver(driver: TimingDriver) { this.selectedDriver.set(driver); }
+  chooseDriver(driver: TimingDriver | undefined) { if (driver) this.timingSelection.update((selection) => selectTimingDriver(selection, driver)); }
+  setClassLabel(classLabel: string) { this.timingSelection.update((selection) => ({ ...selection, classLabel, importedResult: undefined })); }
+  driverOptionKey(driver: TimingDriver, index: number) { return timingDriverOptionKey(driver, index); }
   importSelectedTiming() {
-    const track = this.selectedTrack(); const event = this.selectedEvent(); const race = this.selectedRace(); const driver = this.selectedDriver();
-    if (!track || !event || !race || !driver) return;
+    const selection = this.timingSelection();
+    const request = buildTimingImportRequest(selection);
+    if (!request) { this.timingError.set(timingImportReadiness(selection) ?? 'Unable to import timing.'); return; }
     this.timingError.set('');
-    this.timingApi.import({ trackHost: track.host, trackName: track.name, trackUrl: track.url, eventName: event.name, eventUrl: event.url, raceId: race.id, raceLabel: race.label, roundLabel: race.label, classLabel: this.classLabel(), raceUrl: race.url, driverName: driver.name, ...(driver.driverId ? { driverId: driver.driverId } : {}) }).subscribe({ next: (value) => { this.timingImport.set(value); this.message.set(`Imported ${value.laps.length} laps for ${value.driverName}.`); }, error: (error: { error?: { error?: string } }) => this.timingError.set(error.error?.error ?? 'Unable to import timing.') });
+    this.timingApi.import(request).subscribe({ next: (value) => { if (this.isCurrentTimingSelection(selection)) { this.timingSelection.update((current) => ({ ...current, importedResult: value })); this.message.set(`Imported ${value.laps.length} laps for ${value.driverName}.`); } }, error: (error: { error?: { error?: string } }) => { if (this.isCurrentTimingSelection(selection)) this.timingError.set(error.error?.error ?? 'Unable to import timing.'); } });
+  }
+  private isCurrentTimingSelection(selection: TimingSelection) {
+    const current = this.timingSelection();
+    return current.track === selection.track && current.event === selection.event && current.race === selection.race && current.driver === selection.driver && current.classLabel === selection.classLabel;
   }
   private action(action: 'queue' | 'start' | 'cancel' | 'resume') {
     const current = this.analysis();
