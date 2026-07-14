@@ -6,73 +6,110 @@ const transitions: Record<Analysis["state"], Analysis["state"][]> = {
   running: ["completed", "failed", "cancelled"],
   completed: ["queued"],
   failed: ["queued"],
-  cancelled: ["queued"],
+  cancelled: ["queued", "running"],
+};
+
+type ProgressUpdate = {
+  phase: Analysis["phase"];
+  progress: number;
+  checkpoint?: string;
 };
 
 export class AnalysisWorkflow {
-  constructor(private readonly store: AnalysisStore) {}
+  constructor(
+    private readonly store: AnalysisStore,
+    private readonly onChange?: (analysis: Analysis) => Promise<void> | void,
+  ) {}
 
-  createDraft(input: CreateAnalysisInput): Analysis {
-    if (!input.videoPath.trim() || !input.videoName.trim())
+  async createDraft(input: CreateAnalysisInput): Promise<Analysis> {
+    if (!input.videoPath.trim() || !input.videoName.trim()) {
       throw new Error("videoPath and videoName are required");
-    return this.store.createDraft(input);
+    }
+    const analysis = await this.store.createDraft(input);
+    await this.onChange?.(analysis);
+    return analysis;
   }
 
-  get(id: string): Analysis {
-    const analysis = this.store.get(id);
+  async get(id: string): Promise<Analysis> {
+    const analysis = await this.store.get(id);
     if (!analysis) throw new Error("analysis not found");
     return analysis;
   }
 
-  queue(id: string): Analysis {
-    return this.transition(id, "queued");
+  async queue(id: string): Promise<Analysis> {
+    return this.transition(id, "queued", { error: null });
   }
-  start(id: string): Analysis {
-    return this.transition(id, "running", {
-      phase: "calibrating",
-      checkpoint: "queued",
-    });
+
+  async start(id: string): Promise<Analysis> {
+    const analysis = await this.get(id);
+    if (analysis.state === "running") return analysis;
+    const hasCheckpoint = Boolean(analysis.checkpoint && analysis.checkpoint !== "queued");
+    return this.transition(
+      id,
+      "running",
+      hasCheckpoint
+        ? { error: null }
+        : { phase: "calibrating", progress: 0, checkpoint: "queued", error: null },
+    );
   }
-  report(
-    id: string,
-    update: { phase: Analysis["phase"]; progress: number; checkpoint?: string },
-  ): Analysis {
-    const analysis = this.get(id);
-    if (analysis.state !== "running")
+
+  async report(id: string, update: ProgressUpdate): Promise<Analysis> {
+    const analysis = await this.get(id);
+    if (analysis.state !== "running") {
       throw new Error("only running analyses can report progress");
-    if (update.progress < 0 || update.progress > 1)
+    }
+    if (update.progress < 0 || update.progress > 1) {
       throw new Error("progress must be between 0 and 1");
+    }
     const next = {
       ...analysis,
       phase: update.phase,
       progress: update.progress,
       checkpoint: update.checkpoint ?? analysis.checkpoint,
     };
-    this.store.save(next);
-    return this.get(id);
-  }
-  complete(id: string): Analysis {
-    return this.transition(id, "completed", { phase: "review", progress: 1 });
-  }
-  fail(id: string, error: string): Analysis {
-    return this.transition(id, "failed", { error });
-  }
-  cancel(id: string): Analysis {
-    return this.transition(id, "cancelled");
-  }
-  resume(id: string): Analysis {
-    return this.transition(id, "queued", { error: null });
+    await this.store.save(next);
+    const persisted = await this.get(id);
+    await this.onChange?.(persisted);
+    return persisted;
   }
 
-  private transition(
+  async complete(id: string): Promise<Analysis> {
+    return this.transition(id, "completed", {
+      phase: "review",
+      progress: 1,
+      checkpoint: "completed",
+    });
+  }
+
+  async fail(id: string, error: string): Promise<Analysis> {
+    return this.transition(id, "failed", { error });
+  }
+
+  async cancel(id: string): Promise<Analysis> {
+    const analysis = await this.get(id);
+    if (analysis.state === "cancelled") return analysis;
+    return this.transition(id, "cancelled");
+  }
+
+  async resume(id: string): Promise<Analysis> {
+    const analysis = await this.get(id);
+    if (analysis.state === "running") return analysis;
+    return this.transition(id, "running", { error: null });
+  }
+
+  private async transition(
     id: string,
     state: Analysis["state"],
     fields: Partial<Analysis> = {},
-  ): Analysis {
-    const analysis = this.get(id);
-    if (!transitions[analysis.state].includes(state))
+  ): Promise<Analysis> {
+    const analysis = await this.get(id);
+    if (!transitions[analysis.state].includes(state)) {
       throw new Error(`cannot transition ${analysis.state} to ${state}`);
-    this.store.save({ ...analysis, ...fields, state });
-    return this.get(id);
+    }
+    const next = { ...analysis, ...fields, state };
+    await this.store.save(next);
+    const persisted = await this.get(id);
+    await this.onChange?.(persisted);
+    return persisted;
   }
 }

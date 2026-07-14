@@ -3,16 +3,19 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev",
+    "dev": "wrangler d1 migrations apply rc-racing-line-analysis --local && wrangler dev",
     "build": "wrangler deploy --dry-run",
-    "types": "wrangler types"
+    "types": "wrangler types",
+    "db:generate": "drizzle-kit generate"
   },
   "dependencies": {
+    "drizzle-orm": "^0.44.2",
     "hono": "^4.9.0",
     "zod": "^3.25.0"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260714.1",
+    "drizzle-kit": "^0.31.4",
     "wrangler": "^4.25.0"
   }
 }

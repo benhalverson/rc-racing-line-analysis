@@ -4,5 +4,17 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-07-13",
   "compatibility_flags": ["nodejs_compat"],
-  "observability": { "enabled": true }
+  "observability": { "enabled": true },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "rc-racing-line-analysis",
+      "migrations_dir": "drizzle/migrations"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [{ "name": "ANALYSIS_PROGRESS_ROOMS", "class_name": "AnalysisProgressRoom" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["AnalysisProgressRoom"] }],
+  "workflows": [{ "name": "analysis-processing", "binding": "ANALYSIS_PROCESSING", "class_name": "AnalysisProcessingWorkflow" }]
 }

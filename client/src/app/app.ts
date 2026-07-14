@@ -1,15 +1,8 @@
 import { DecimalPipe } from '@angular/common';
-import { Component, inject, signal } from '@angular/core';
-import { AnalysisApi } from './app/analysis-api';
-interface Analysis {
-  id: string;
-  videoName: string;
-  carDescription: string | null;
-  state: string;
-  phase: string;
-  progress: number;
-  checkpoint: string | null;
-}
+import { Component, DestroyRef, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import type { Subscription } from 'rxjs';
+import { AnalysisApi, type Analysis, type AnalysisConnectionState } from './app/analysis-api';
 @Component({
   selector: 'app-root',
   imports: [DecimalPipe],
@@ -18,10 +11,13 @@ interface Analysis {
 })
 export class App {
   private readonly api = inject(AnalysisApi);
+  private readonly destroyRef = inject(DestroyRef);
+  private updates?: Subscription;
   readonly videoPath = signal('');
   readonly carDescription = signal('');
   readonly message = signal('');
   readonly analysis = signal<Analysis | undefined>(undefined);
+  readonly connectionState = signal<AnalysisConnectionState>('disconnected');
   selectVideo(event: Event) {
     const file = (event.target as HTMLInputElement).files?.[0];
     if (file) this.videoPath.set(`local://${file.name}`);
@@ -50,14 +46,28 @@ export class App {
   cancel() {
     this.action('cancel');
   }
-  private action(action: 'queue' | 'start' | 'cancel') {
+  resume() {
+    this.action('resume');
+  }
+  private action(action: 'queue' | 'start' | 'cancel' | 'resume') {
     const current = this.analysis();
     if (!current) return;
     this.api
       .action(current.id, action)
       .subscribe({
-        next: (value) => this.analysis.set(value),
+        next: (value) => {
+          this.analysis.set(value);
+          if (action === 'start' || action === 'resume') this.connectToUpdates(value.id);
+          if (action === 'cancel') this.updates?.unsubscribe();
+        },
         error: () => this.message.set('That lifecycle action was not accepted.'),
       });
+  }
+  private connectToUpdates(id: string) {
+    this.updates?.unsubscribe();
+    this.updates = this.api
+      .updates(id, (state) => this.connectionState.set(state))
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({ next: (message) => this.analysis.set(message.analysis) });
   }
 }

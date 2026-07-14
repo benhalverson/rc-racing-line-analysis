@@ -23,7 +23,7 @@
       [value]="carDescription()"
       (input)="carDescription.set($any($event.target).value)"
       placeholder="blue buggy"
-    /><button (click)="createDraft()" [disabled]="!videoPath().trim()">Create draft</button>
+    /><button type="button" (click)="createDraft()" [disabled]="!videoPath().trim()">Create draft</button>
     @if (message()) {
       <p class="message" role="status">{{ message() }}</p>
     }
@@ -39,19 +39,22 @@
       <div class="progress"><div [style.width.%]="current.progress * 100"></div></div>
       <p class="meta">
         Phase: {{ current.phase }} · {{ current.progress * 100 | number: '1.0-0' }}% · Checkpoint:
-        {{ current.checkpoint || 'none' }}
+        {{ current.checkpoint || 'none' }} · Connection: {{ connectionState() }}
       </p>
       <div class="actions">
         @if (
           current.state === 'draft' || current.state === 'cancelled' || current.state === 'failed'
         ) {
-          <button (click)="queue()">Queue batch</button>
+          <button type="button" (click)="queue()">Queue batch</button>
         }
         @if (current.state === 'queued') {
-          <button (click)="start()">Start batch</button>
+          <button type="button" (click)="start()">Start batch</button>
+        }
+        @if (current.state === 'cancelled') {
+          <button type="button" (click)="resume()">Resume batch</button>
         }
         @if (current.state === 'queued' || current.state === 'running') {
-          <button class="quiet" (click)="cancel()">Cancel</button>
+          <button type="button" class="quiet" (click)="cancel()">Cancel</button>
         }
       </div>
     </section>

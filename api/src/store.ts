@@ -4,7 +4,7 @@ import type { Analysis, AnalysisStore, CreateAnalysisInput } from "./domain.js";
 export class InMemoryAnalysisStore implements AnalysisStore {
   private readonly analyses = new Map<string, Analysis>();
 
-  createDraft(input: CreateAnalysisInput): Analysis {
+  async createDraft(input: CreateAnalysisInput): Promise<Analysis> {
     const now = new Date().toISOString();
     const analysis: Analysis = {
       id: randomUUID(),
@@ -23,10 +23,10 @@ export class InMemoryAnalysisStore implements AnalysisStore {
     return analysis;
   }
 
-  get(id: string): Analysis | undefined {
+  async get(id: string): Promise<Analysis | undefined> {
     return this.analyses.get(id);
   }
-  save(analysis: Analysis): void {
+  async save(analysis: Analysis): Promise<void> {
     this.analyses.set(analysis.id, {
       ...analysis,
       updatedAt: new Date().toISOString(),

@@ -23,13 +23,9 @@ export interface Analysis {
 }
 
 export interface AnalysisStore {
-  createDraft(input: {
-    videoPath: string;
-    videoName: string;
-    carDescription?: string;
-  }): Analysis;
-  get(id: string): Analysis | undefined;
-  save(analysis: Analysis): void;
+  createDraft(input: CreateAnalysisInput): Promise<Analysis>;
+  get(id: string): Promise<Analysis | undefined>;
+  save(analysis: Analysis): Promise<void>;
 }
 
 export interface CreateAnalysisInput {
