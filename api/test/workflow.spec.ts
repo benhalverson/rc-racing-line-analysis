@@ -5,12 +5,26 @@ import { AnalysisWorkflow } from "../src/workflow";
 
 function testApp() { return createApp(new AnalysisWorkflow(new InMemoryAnalysisStore())); }
 
+const correctionPayload = {
+  raceStartSeconds: 1,
+  markerReferenceSeconds: 2,
+  carSelectionSeconds: 3,
+  markers: [{ id: "m1", position: { x: 0.2, y: 0.3 }, source: "detected" as const }],
+  selectedCarBox: { x: 0.1, y: 0.1, width: 0.2, height: 0.2 },
+};
+
+async function prepareQueued(workflow: AnalysisWorkflow, draft: { id: string }) {
+  await workflow.startCalibration(draft.id);
+  await workflow.createAndAcceptCorrectionSet(draft.id, correctionPayload);
+  await workflow.queue(draft.id);
+}
+
 describe("AnalysisWorkflow", () => {
   it("creates a local draft and carries it through a resumable batch lifecycle", async () => {
     const workflow = new AnalysisWorkflow(new InMemoryAnalysisStore());
     const draft = await workflow.createDraft({ videoPath: "/races/heat-1.mp4", videoName: "heat-1.mp4", carDescription: "blue buggy" });
     expect(draft.state).toBe("draft");
-    await workflow.queue(draft.id);
+    await prepareQueued(workflow, draft);
     await workflow.start(draft.id);
     expect((await workflow.report(draft.id, { phase: "tracking", progress: 0.4, checkpoint: "frame-240" })).checkpoint).toBe("frame-240");
     await workflow.cancel(draft.id);
@@ -20,7 +34,7 @@ describe("AnalysisWorkflow", () => {
   it("advances a started batch through checkpoints to completed", async () => {
     const workflow = new AnalysisWorkflow(new InMemoryAnalysisStore());
     const draft = await workflow.createDraft({ videoPath: "/race.mp4", videoName: "race.mp4" });
-    await workflow.queue(draft.id);
+    await prepareQueued(workflow, draft);
     await workflow.start(draft.id);
     await workflow.report(draft.id, { phase: "calibrating", progress: 0.25, checkpoint: "calibration-complete" });
     await workflow.report(draft.id, { phase: "tracking", progress: 0.5, checkpoint: "tracking-halfway" });
@@ -34,7 +48,8 @@ describe("AnalysisWorkflow", () => {
     const workflow = new AnalysisWorkflow(new InMemoryAnalysisStore());
     const draft = await workflow.createDraft({ videoPath: "/race.mp4", videoName: "race.mp4" });
     await expect(workflow.cancel(draft.id)).rejects.toThrow("cannot transition draft to cancelled");
-    await workflow.queue(draft.id);
+    await expect(workflow.queue(draft.id)).rejects.toThrow("cannot transition draft to queued");
+    await prepareQueued(workflow, draft);
     await workflow.start(draft.id);
     await expect(workflow.report(draft.id, { phase: "tracking", progress: 2 })).rejects.toThrow("progress must be between 0 and 1");
   });
@@ -56,6 +71,16 @@ describe("analysis API", () => {
     expect((await (await app.request(`/analyses/${analysis.id}`)).json() as { state: string }).state).toBe("ready");
   });
 
+  it("rejects correction sets after calibration has been accepted", async () => {
+    const workflow = new AnalysisWorkflow(new InMemoryAnalysisStore());
+    const draft = await workflow.createDraft({ videoPath: "browser-sqlite://video-1", videoName: "race.mp4" });
+    await workflow.startCalibration(draft.id);
+    await workflow.createAndAcceptCorrectionSet(draft.id, correctionPayload);
+    await expect(workflow.createAndAcceptCorrectionSet(draft.id, correctionPayload)).rejects.toThrow(
+      "correction sets can only be accepted while awaiting calibration, not ready",
+    );
+  });
+
   it("rejects correction boxes outside normalized frame coordinates", async () => {
     const app = testApp();
     const created = await app.request("/analyses", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ videoPath: "browser-sqlite://video-1", videoName: "race.mp4" }) });
@@ -71,13 +96,13 @@ describe("analysis API", () => {
     expect(created.status).toBe(201);
     const analysis = (await created.json()) as { id: string };
     const queued = await app.request(`/analyses/${analysis.id}/queue`, { method: "POST" });
-    expect(((await queued.json()) as { state: string }).state).toBe("queued");
+    expect(queued.status).toBe(400);
   });
 
   it("cancels when the Workflow is still queued", async () => {
     const workflow = new AnalysisWorkflow(new InMemoryAnalysisStore());
     const draft = await workflow.createDraft({ videoPath: "/race.mp4", videoName: "race.mp4" });
-    await workflow.queue(draft.id);
+    await prepareQueued(workflow, draft);
     await workflow.start(draft.id);
     let pauseCalls = 0;
     const runtime = {
@@ -106,7 +131,7 @@ describe("analysis API", () => {
   it("persists running state before creating a Workflow instance", async () => {
     const workflow = new AnalysisWorkflow(new InMemoryAnalysisStore());
     const draft = await workflow.createDraft({ videoPath: "/race.mp4", videoName: "race.mp4" });
-    await workflow.queue(draft.id);
+    await prepareQueued(workflow, draft);
     let stateWhenCreated: string | undefined;
     let createCalls = 0;
     const runtime = {
@@ -131,7 +156,7 @@ describe("analysis API", () => {
   it("resumes a paused Workflow when starting a queued analysis", async () => {
     const workflow = new AnalysisWorkflow(new InMemoryAnalysisStore());
     const draft = await workflow.createDraft({ videoPath: "/race.mp4", videoName: "race.mp4" });
-    await workflow.queue(draft.id);
+    await prepareQueued(workflow, draft);
     await workflow.start(draft.id);
     await workflow.cancel(draft.id);
     await workflow.queue(draft.id);
@@ -158,7 +183,7 @@ describe("analysis API", () => {
   it("restarts a terminal Workflow when starting a queued analysis", async () => {
     const workflow = new AnalysisWorkflow(new InMemoryAnalysisStore());
     const draft = await workflow.createDraft({ videoPath: "/race.mp4", videoName: "race.mp4" });
-    await workflow.queue(draft.id);
+    await prepareQueued(workflow, draft);
     await workflow.start(draft.id);
     await workflow.cancel(draft.id);
     await workflow.queue(draft.id);
@@ -205,7 +230,7 @@ describe("analysis API", () => {
   it("pauses a running Workflow before marking the analysis cancelled", async () => {
     const workflow = new AnalysisWorkflow(new InMemoryAnalysisStore());
     const draft = await workflow.createDraft({ videoPath: "/race.mp4", videoName: "race.mp4" });
-    await workflow.queue(draft.id);
+    await prepareQueued(workflow, draft);
     await workflow.start(draft.id);
     let stateWhenPaused: string | undefined;
     const runtime = {
@@ -231,7 +256,7 @@ describe("analysis API", () => {
   it("marks the analysis running before resuming a paused Workflow", async () => {
     const workflow = new AnalysisWorkflow(new InMemoryAnalysisStore());
     const draft = await workflow.createDraft({ videoPath: "/race.mp4", videoName: "race.mp4" });
-    await workflow.queue(draft.id);
+    await prepareQueued(workflow, draft);
     await workflow.start(draft.id);
     await workflow.cancel(draft.id);
     let stateWhenResumed: string | undefined;
@@ -258,7 +283,7 @@ describe("analysis API", () => {
   it("pauses a Workflow that is waiting between durable steps", async () => {
     const workflow = new AnalysisWorkflow(new InMemoryAnalysisStore());
     const draft = await workflow.createDraft({ videoPath: "/race.mp4", videoName: "race.mp4" });
-    await workflow.queue(draft.id);
+    await prepareQueued(workflow, draft);
     await workflow.start(draft.id);
     let pauseCalls = 0;
     const runtime = {
@@ -283,7 +308,7 @@ describe("analysis API", () => {
   it("does not issue a second pause while a Workflow is waiting for pause", async () => {
     const workflow = new AnalysisWorkflow(new InMemoryAnalysisStore());
     const draft = await workflow.createDraft({ videoPath: "/race.mp4", videoName: "race.mp4" });
-    await workflow.queue(draft.id);
+    await prepareQueued(workflow, draft);
     await workflow.start(draft.id);
     let pauseCalls = 0;
     const runtime = {
@@ -309,7 +334,7 @@ describe("analysis API", () => {
   it("restarts a terminal Workflow instance when resuming a cancelled analysis", async () => {
     const workflow = new AnalysisWorkflow(new InMemoryAnalysisStore());
     const draft = await workflow.createDraft({ videoPath: "/race.mp4", videoName: "race.mp4" });
-    await workflow.queue(draft.id);
+    await prepareQueued(workflow, draft);
     await workflow.start(draft.id);
     await workflow.cancel(draft.id);
     let stateWhenRestarted: string | undefined;
@@ -336,7 +361,7 @@ describe("analysis API", () => {
   it("creates a Workflow when resuming a cancelled analysis that was never started", async () => {
     const workflow = new AnalysisWorkflow(new InMemoryAnalysisStore());
     const draft = await workflow.createDraft({ videoPath: "/race.mp4", videoName: "race.mp4" });
-    await workflow.queue(draft.id);
+    await prepareQueued(workflow, draft);
     await workflow.cancel(draft.id);
     let stateWhenCreated: string | undefined;
     const runtime = {

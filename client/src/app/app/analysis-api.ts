@@ -1,7 +1,7 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
-import type { CorrectionSet, CorrectionSetPayload, LocalVideoRef } from '../../../../shared/calibration-contract';
+import type { CorrectionSet, CorrectionSetPayload, LocalVideoRef, VideoStorage } from '../../../../shared/calibration-contract';
 
 export interface Analysis {
   id: string;
@@ -15,8 +15,8 @@ export interface Analysis {
   error: string | null;
   createdAt: string;
   updatedAt: string;
-  videoStorage: 'browser-sqlite';
-  localVideoRef: LocalVideoRef;
+  videoStorage: VideoStorage;
+  localVideoRef?: LocalVideoRef;
   acceptedCorrectionSetId: string | null;
 }
 

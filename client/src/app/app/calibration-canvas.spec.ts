@@ -1,6 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { vi } from 'vitest';
 import type { NormalizedBox } from '../../../../shared/calibration-contract';
+import type { CorrectionMarker } from '../../../../shared/calibration-contract';
 import { BrowserSqliteStore } from './browser-sqlite';
 import { CalibrationCanvas } from './calibration-canvas';
 
@@ -61,5 +62,36 @@ describe('CalibrationCanvas', () => {
     expect(selected[1]).toMatchObject({ x: 0.1, y: 0.2 });
     expect(selected[1].width).toBeCloseTo(0.3);
     expect(selected[1].height).toBeCloseTo(0.4);
+  });
+
+  it('moves an existing detected marker instead of adding another marker', () => {
+    const fixture = TestBed.createComponent(CalibrationCanvas);
+    const canvas = fixture.componentInstance;
+    canvas.mode = 'marker';
+    canvas.markers = [{ id: 'detected-1', position: { x: 0.25, y: 0.5 }, source: 'detected' } satisfies CorrectionMarker];
+    fixture.detectChanges();
+    const element = fixture.nativeElement.querySelector('.calibration-hit-area') as HTMLDivElement;
+    vi.spyOn(element, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 100, height: 100, right: 100, bottom: 100, x: 0, y: 0, toJSON: () => ({}) });
+    const moved = vi.fn();
+    const placed = vi.fn();
+    canvas.markerMoved.subscribe(moved);
+    canvas.markerPlaced.subscribe(placed);
+    canvas.pointerDown(new PointerEvent('pointerdown', { clientX: 25, clientY: 50, pointerId: 1 }));
+    canvas.pointerUp(new PointerEvent('pointerup', { clientX: 40, clientY: 60, pointerId: 1 }));
+    expect(moved).toHaveBeenCalledWith({ id: 'detected-1', position: { x: 0.4, y: 0.6 } });
+    expect(placed).not.toHaveBeenCalled();
+  });
+
+  it('adds a manual marker when marker mode starts on empty space', () => {
+    const fixture = TestBed.createComponent(CalibrationCanvas);
+    const canvas = fixture.componentInstance;
+    canvas.mode = 'marker';
+    fixture.detectChanges();
+    const element = fixture.nativeElement.querySelector('.calibration-hit-area') as HTMLDivElement;
+    vi.spyOn(element, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 100, height: 100, right: 100, bottom: 100, x: 0, y: 0, toJSON: () => ({}) });
+    const placed = vi.fn();
+    canvas.markerPlaced.subscribe(placed);
+    canvas.pointerDown(new PointerEvent('pointerdown', { clientX: 90, clientY: 10 }));
+    expect(placed).toHaveBeenCalledWith({ x: 0.9, y: 0.1 });
   });
 });

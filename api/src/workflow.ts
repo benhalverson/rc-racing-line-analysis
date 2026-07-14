@@ -2,8 +2,8 @@ import type { Analysis, AnalysisStore, CreateAnalysisInput } from "./domain";
 import type { CorrectionSet } from "../../shared/calibration-contract";
 
 const transitions: Record<Analysis["state"], Analysis["state"][]> = {
-  draft: ["awaiting_calibration", "queued"],
-  awaiting_calibration: ["ready", "queued"],
+  draft: ["awaiting_calibration"],
+  awaiting_calibration: ["ready"],
   ready: ["queued"],
   queued: ["running", "cancelled"],
   running: ["completed", "failed", "cancelled"],
@@ -49,6 +49,10 @@ export class AnalysisWorkflow {
     return this.transition(id, "awaiting_calibration", { phase: "calibrating", checkpoint: "calibration-started", error: null });
   }
   async createAndAcceptCorrectionSet(id: string, payload: Omit<CorrectionSet, "id" | "analysisId" | "version" | "accepted" | "createdAt">) {
+    const analysis = await this.get(id);
+    if (analysis.state !== "awaiting_calibration") {
+      throw new Error(`correction sets can only be accepted while awaiting calibration, not ${analysis.state}`);
+    }
     const set = await this.store.createCorrectionSet(id, payload);
     return this.store.acceptCorrectionSet(id, set.id);
   }

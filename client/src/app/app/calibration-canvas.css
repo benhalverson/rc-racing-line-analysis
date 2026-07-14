@@ -9,4 +9,5 @@
 .video-readout { display: flex; gap: 6px; color: #dbe0e8; font-variant-numeric: tabular-nums; font-size: .84rem; }
 .video-readout .mode-label { margin-left: auto; color: #e4c985; }
 .error { color: #ef9a9a; }
+.detection-controls { display: flex; align-items: center; gap: 10px; color: #b9c4d2; font-size: .84rem; }
 @media (max-width: 600px) { .video-readout .mode-label { margin-left: 0; } .video-readout { flex-wrap: wrap; } }

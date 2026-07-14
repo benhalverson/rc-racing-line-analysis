@@ -17,8 +17,8 @@ const analysisRowSchema = z.object({
   error: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
-  videoStorage: z.literal("browser-sqlite"),
-  localVideoRef: z.string().transform((value) => JSON.parse(value)),
+  videoStorage: z.enum(["browser-sqlite", "legacy"]),
+  localVideoRef: z.preprocess((value) => typeof value === "string" && value.trim() ? JSON.parse(value) : undefined, z.unknown().optional()),
   acceptedCorrectionSetId: z.string().nullable(),
 });
 

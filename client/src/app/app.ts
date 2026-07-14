@@ -7,7 +7,7 @@ import { TimingApi, type TimingDriver, type TimingEvent, type TimingImportSummar
 import { buildTimingImportRequest, confirmTimingSelection, emptyTimingSelection, selectTimingDriver, selectTimingEvent, selectTimingRace, selectTimingTrack, timingDriverOptionKey, timingImportReadiness, timingSelectionIsConfirmed, type TimingSelection } from './app/timing-selection';
 import { BrowserSqliteStore } from './app/browser-sqlite';
 import { CalibrationCanvas, type CalibrationMode } from './app/calibration-canvas';
-import { addMarker, calibrationReadiness, canStartCalibration as canStartCalibrationState, emptyCalibration, removeMarker, type CalibrationState } from './app/calibration-state';
+import { addMarker, calibrationReadiness, canStartCalibration as canStartCalibrationState, emptyCalibration, markerStatus, moveMarker, removeMarker, replaceDetectedMarkers, type CalibrationState } from './app/calibration-state';
 import type { CorrectionSet, LocalVideoRef, NormalizedBox, NormalizedPoint } from '../../../shared/calibration-contract';
 @Component({
   selector: 'app-root',
@@ -43,6 +43,7 @@ export class App {
   readonly calibrationMode = signal<CalibrationMode>('idle');
   readonly canStartCalibration = canStartCalibrationState;
   readonly calibrationReadiness = calibrationReadiness;
+  readonly markerStatus = markerStatus;
   private videoSave?: Promise<void>;
   private videoSaveFailed = false;
   private videoSaveError = '';
@@ -94,12 +95,18 @@ export class App {
   }
   startCalibration() { const current = this.analysis(); if (current?.state !== 'draft') return; this.api.startCalibration(current.id).subscribe({ next: (value) => this.analysis.set(value), error: (error) => this.calibrationError.set(timingError(error, 'Unable to start calibration.')) }); }
   setRaceStart(seconds: number) { this.calibration.update((state) => ({ ...state, raceStartSeconds: finiteOrNull(seconds) })); this.calibrationMode.set('idle'); }
-  setMarkerReference(seconds: number) { this.calibration.update((state) => ({ ...state, markerReferenceSeconds: finiteOrNull(seconds) })); this.calibrationMode.set('marker'); }
+  setMarkerReference(seconds: number) { this.calibration.update((state) => ({ ...state, markerReferenceSeconds: finiteOrNull(seconds), markers: [], markerDetectionStatus: 'not-run' })); this.calibrationMode.set('marker'); }
   setCarSelection(seconds: number) { this.calibration.update((state) => ({ ...state, carSelectionSeconds: finiteOrNull(seconds) })); this.calibrationMode.set('car'); }
   addCalibrationMarker(position: NormalizedPoint) { this.calibration.update((state) => addMarker(state, position)); }
+  moveCalibrationMarker(change: { id: string; position: NormalizedPoint }) { this.calibration.update((state) => moveMarker(state, change.id, change.position)); }
+  replaceDetectedCalibrationMarkers(positions: NormalizedPoint[]) {
+    const current = this.calibration();
+    if (current.markers.length && !window.confirm('Replace the current marker corrections with fresh detection results?')) return;
+    this.calibration.update((state) => replaceDetectedMarkers(state, positions));
+  }
   setCarBox(box: NormalizedBox) { this.calibration.update((state) => ({ ...state, selectedCarBox: box })); }
   removeCalibrationMarker(id: string) { this.calibration.update((state) => removeMarker(state, id)); }
-  saveCalibration() { const current = this.analysis(); const state = this.calibration(); const readiness = calibrationReadiness(state); if (!current || readiness || state.raceStartSeconds === null || state.markerReferenceSeconds === null || state.carSelectionSeconds === null || !state.selectedCarBox) { this.calibrationError.set(readiness ?? 'Create a draft before saving calibration.'); return; } const payload = { ...state, raceStartSeconds: state.raceStartSeconds, markerReferenceSeconds: state.markerReferenceSeconds, carSelectionSeconds: state.carSelectionSeconds, selectedCarBox: state.selectedCarBox, carDescription: this.carDescription() || undefined }; const localSet: CorrectionSet = { ...payload, id: crypto.randomUUID(), analysisId: current.id, version: 0, accepted: false, createdAt: new Date().toISOString() }; this.videoStore.saveCorrectionSet(localSet).then(() => this.api.saveCorrectionSet(current.id, payload).subscribe({ next: (set) => { this.videoStore.saveCorrectionSet(set).catch(() => undefined); this.analysis.update((analysis) => analysis ? { ...analysis, state: 'ready', acceptedCorrectionSetId: set.id } : analysis); this.message.set(`Correction set v${set.version} synchronized to D1.`); }, error: () => this.calibrationError.set('Saved locally; synchronization failed. Retry when connected.') })).catch((error: Error) => this.calibrationError.set(error.message)); }
+  saveCalibration() { const current = this.analysis(); const state = this.calibration(); const readiness = calibrationReadiness(state); if (!current || readiness || state.raceStartSeconds === null || state.markerReferenceSeconds === null || state.carSelectionSeconds === null || !state.selectedCarBox) { this.calibrationError.set(readiness ?? 'Create a draft before saving calibration.'); return; } const payload = { raceStartSeconds: state.raceStartSeconds, markerReferenceSeconds: state.markerReferenceSeconds, carSelectionSeconds: state.carSelectionSeconds, markers: state.markers, selectedCarBox: state.selectedCarBox, carDescription: this.carDescription() || undefined }; const localSet: CorrectionSet = { ...payload, id: crypto.randomUUID(), analysisId: current.id, version: 0, accepted: false, createdAt: new Date().toISOString() }; this.videoStore.saveCorrectionSet(localSet).then(() => this.api.saveCorrectionSet(current.id, payload).subscribe({ next: (set) => { this.videoStore.saveCorrectionSet(set).catch(() => undefined); this.analysis.update((analysis) => analysis ? { ...analysis, state: 'ready', acceptedCorrectionSetId: set.id } : analysis); this.message.set(`Correction set v${set.version} synchronized to D1.`); }, error: () => this.calibrationError.set('Saved locally; synchronization failed. Retry when connected.') })).catch((error: Error) => this.calibrationError.set(error.message)); }
   queue() {
     this.action('queue');
   }

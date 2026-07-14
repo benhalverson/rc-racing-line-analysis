@@ -1,4 +1,4 @@
-export type VideoStorage = "browser-sqlite";
+export type VideoStorage = "browser-sqlite" | "legacy";
 
 export interface LocalVideoRef {
   id: string;
