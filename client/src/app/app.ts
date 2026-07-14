@@ -5,6 +5,7 @@ import type { Subscription } from 'rxjs';
 import { AnalysisApi, type Analysis, type AnalysisConnectionState } from './app/analysis-api';
 import { TimingApi, type TimingDriver, type TimingEvent, type TimingImportSummary, type TimingRace, type TimingTrack } from './app/timing-api';
 import { buildTimingImportRequest, confirmTimingSelection, emptyTimingSelection, selectTimingDriver, selectTimingEvent, selectTimingRace, selectTimingTrack, timingDriverOptionKey, timingImportReadiness, timingSelectionIsConfirmed, type TimingSelection } from './app/timing-selection';
+import { compareLine, reviseAlternative, type AlternativeLine, type TrackPoint } from './app/alternative-lines';
 @Component({
   selector: 'app-root',
   imports: [DecimalPipe],
@@ -29,6 +30,11 @@ export class App {
   readonly timingError = signal('');
   readonly trackQuery = signal('');
   readonly savedImports = signal<TimingImportSummary[]>([]);
+  readonly alternativeName = signal('');
+  readonly alternativeLines = signal<AlternativeLine[]>([]);
+  readonly drawing = signal<TrackPoint[]>([]);
+  readonly observedLine: TrackPoint[] = [{ x: 8, y: 78 }, { x: 20, y: 32 }, { x: 47, y: 18 }, { x: 76, y: 38 }, { x: 89, y: 73 }, { x: 58, y: 86 }, { x: 28, y: 76 }, { x: 8, y: 78 }];
+  readonly observedComparison = compareLine(this.observedLine);
   selectVideo(event: Event) {
     const file = (event.target as HTMLInputElement).files?.[0];
     if (file) this.videoPath.set(`local://${file.name}`);
@@ -115,6 +121,27 @@ export class App {
       }),
       error: (error) => this.timingError.set(timingError(error, 'Unable to reopen saved timing import.')),
     });
+  }
+  addAlternativePoint(event: MouseEvent) {
+    const track = event.currentTarget as SVGSVGElement;
+    const bounds = track.getBoundingClientRect();
+    this.drawing.update((points) => [...points, {
+      x: Math.round(((event.clientX - bounds.left) / bounds.width) * 100),
+      y: Math.round(((event.clientY - bounds.top) / bounds.height) * 100),
+    }]);
+  }
+  undoAlternativePoint() { this.drawing.update((points) => points.slice(0, -1)); }
+  clearAlternative() { this.drawing.set([]); }
+  saveAlternative() {
+    const analysis = this.analysis();
+    const name = this.alternativeName().trim();
+    if (!analysis || !name || this.drawing().length < 2) return;
+    this.alternativeLines.update((lines) => reviseAlternative(lines, analysis.id, name, this.drawing()));
+    this.drawing.set([]);
+  }
+  alternativesForCurrentAnalysis() {
+    const id = this.analysis()?.id;
+    return id ? this.alternativeLines().filter((line) => line.analysisId === id) : [];
   }
   private isCurrentTimingSelection(selection: TimingSelection) {
     const current = this.timingSelection();
