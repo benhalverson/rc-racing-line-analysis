@@ -68,8 +68,8 @@ export function createApp(workflow: AnalysisWorkflow, runtime?: AnalysisRuntime,
     if (!timing) return c.json({ error: "timing import is unavailable" }, 503);
     const page = await timing.fetch("https://live.liverc.com/");
     if (page.status < 200 || page.status >= 300) return c.json({ error: `LiveRC returned HTTP ${page.status}` }, 502);
-    const query = c.req.query("query")?.trim().toLowerCase();
-    const tracks = parseTrackList(page.html, page.url).filter((track) => !query || `${track.name} ${track.host}`.toLowerCase().includes(query));
+    const query = searchKey(c.req.query("query") ?? "");
+    const tracks = parseTrackList(page.html, page.url).filter((track) => !query || searchKey(`${track.name} ${track.host}`).includes(query));
     return c.json({ tracks });
   });
   app.get("/timing/events", async (c) => {
@@ -214,6 +214,10 @@ function requiredQuery(c: { req: { query: (name: string) => string | undefined }
   const value = c.req.query(name);
   if (!value?.trim()) throw new Error(`${name} is required`);
   return value;
+}
+
+function searchKey(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
 async function getOrCreateInstance(runtime: AnalysisRuntime | undefined, id: string) {

@@ -32,4 +32,13 @@ describe("LiveRC timing adapter", () => {
     expect(imported.sourceHash).toHaveLength(64);
     expect((await app.request(`/timing/imports/${imported.id}`)).status).toBe(200);
   });
+
+  it("finds a hyphenated LiveRC track when the query omits punctuation", async () => {
+    const app = createApp(new AnalysisWorkflow(new InMemoryAnalysisStore()), undefined, {
+      store: new InMemoryTimingStore(),
+      fetch: async (url: string) => ({ url, status: 200, html: '<a href="https://norcalhobbies.liverc.com/">Nor-Cal Hobbies</a>' }),
+    });
+    const response = await app.request("/timing/tracks?query=norcal%20hobbies");
+    expect(await response.json()).toEqual({ tracks: [{ host: "norcalhobbies.liverc.com", name: "Nor-Cal Hobbies", url: "https://norcalhobbies.liverc.com/" }] });
+  });
 });
