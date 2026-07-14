@@ -21,6 +21,9 @@ export interface AlternativeLine {
 
 const acceptedCorrectionSetId = 'accepted';
 const stabilizedTrackReferenceId = 'stabilized-track';
+const baseUncertaintyFactor = 0.02;
+const minimumPointCount = 2;
+const pointDensityScale = 10;
 export const observedTrackReference: TrackPoint[] = [{ x: 8, y: 78 }, { x: 20, y: 32 }, { x: 47, y: 18 }, { x: 76, y: 38 }, { x: 89, y: 73 }, { x: 58, y: 86 }, { x: 28, y: 76 }, { x: 8, y: 78 }];
 
 export function compareLine(points: TrackPoint[]): LineComparison {
@@ -32,13 +35,13 @@ export function compareLine(points: TrackPoint[]): LineComparison {
     return span ? total + Math.abs(value) / span : total;
   }, 0);
   const smoothness = turns.length < 2 ? 0 : turns.slice(1).reduce((total, value, index) => total + Math.abs(value - turns[index]), 0) / (turns.length - 1);
-  const apex = turns.length ? turns.reduce((best, value, index) => Math.abs(value) > Math.abs(turns[best] ?? 0) ? index : best, 0) + 1 : 0;
+  const apex = findApexIndex(turns);
   return {
     length,
     corner: points.length < 3 ? undefined : { entry: percent(apex - 1, points.length), apex: percent(apex, points.length), exit: percent(apex + 1, points.length) },
     curvature,
     smoothness,
-    uncertainty: length * (0.02 + 1 / Math.max(points.length, 2) / 10),
+    uncertainty: length * (baseUncertaintyFactor + 1 / Math.max(points.length, minimumPointCount) / pointDensityScale),
   };
 }
 
@@ -61,4 +64,9 @@ function turn(a: TrackPoint, b: TrackPoint, c: TrackPoint) {
 
 function percent(index: number, count: number) {
   return Math.round(Math.max(0, Math.min(1, index / (count - 1))) * 100);
+}
+
+function findApexIndex(turns: number[]) {
+  if (!turns.length) return 0;
+  return turns.reduce((best, value, index) => Math.abs(value) > Math.abs(turns[best] ?? 0) ? index : best, 0) + 1;
 }

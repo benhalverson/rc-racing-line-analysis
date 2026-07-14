@@ -86,7 +86,7 @@
         <div class="actions"><button type="button" class="quiet" (click)="undoAlternativePoint()" [disabled]="!drawing().length">Undo point</button><button type="button" class="quiet" (click)="clearAlternative()" [disabled]="!drawing().length">Clear</button><button type="button" (click)="saveAlternative()" [disabled]="drawing().length < 2 || !alternativeName().trim()">Save version</button></div>
         @for (line of alternativesForCurrentAnalysis(); track line.name) {
           <article class="alternative-card">
-            <h3>{{ line.name }} <span>Hypothetical. {{ line.versions.length }} saved version{{ line.versions.length === 1 ? '' : 's' }}.</span></h3>
+            <h3>{{ line.name }} <span>{{ alternativeVersionLabel(line.versions.length) }}</span></h3>
             @for (version of line.versions; track version.version) {
               <div class="comparison"><strong>v{{ version.version }}</strong><span>Length {{ version.comparison.length | number: '1.1-1' }} units</span><span>Curvature {{ version.comparison.curvature | number: '1.2-2' }}</span><span>Smoothness {{ version.comparison.smoothness | number: '1.2-2' }}</span><span>Uncertainty ±{{ version.comparison.uncertainty | number: '1.1-1' }} units</span>@if (version.comparison.corner; as corner) { <span>Corner: entry {{ corner.entry }}% · apex {{ corner.apex }}% · exit {{ corner.exit }}%</span> }</div>
             }
