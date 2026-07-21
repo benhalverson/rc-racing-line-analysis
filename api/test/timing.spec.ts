@@ -46,7 +46,17 @@ describe("LiveRC timing adapter", () => {
   it("discovers tracks, events, and race-result links without slugifying names", () => {
     expect(parseTrackList(tracksHtml).map((track) => track.host)).toEqual(["rcra.liverc.com", "other.liverc.com"]);
     expect(parseEvents('<a href="https://live.liverc.com/events/calendar/">Calendar</a><a href="/results/?id=44&p=view_event">2026 Nationals</a><a href="/results/?p=view_event&id=44">Duplicate</a><a href="https://other.liverc.com/results/?id=99&p=view_event">Other</a><a href="/events/">Past Events</a><a href="/results/?id=0&p=view_event">Placeholder</a>', "https://rcra.liverc.com/")).toEqual([{ name: "2026 Nationals", url: "https://rcra.liverc.com/results/?id=44&p=view_event" }]);
-    expect(parseRaces(raceHtml, "https://rcra.liverc.com/results/")[0]).toMatchObject({ id: "44", label: "Buggy Heat 2/7" });
+    expect(parseRaces(raceHtml, "https://rcra.liverc.com/results/")[0]).toMatchObject({ id: "44", label: "Buggy Heat 2/7", classLabel: "Buggy" });
+  });
+
+  it.each([
+    ["Buggy Heat 2/7", "Buggy"],
+    ["Buggy (Heat 2/7)", "Buggy"],
+    ["EP Buggy A1-Main", "EP Buggy"],
+    ["Club Special", "Club Special"],
+  ])("derives the class label from %s", (label, classLabel) => {
+    const races = parseRaces(`<a href="/results/?id=44&p=view_race_result">${label}</a>`, "https://rcra.liverc.com/events/1");
+    expect(races[0]).toMatchObject({ label, classLabel });
   });
 
   it("keeps only exact same-host race-result links and preserves the first label", () => {
@@ -61,8 +71,8 @@ describe("LiveRC timing adapter", () => {
       '<a href="https://example.com/results/?id=48&p=view_race_result">External</a>',
     ].join('');
     expect(parseRaces(html, "https://rcra.liverc.com/events/1")).toEqual([
-      { id: "44", label: "First label", url: "https://rcra.liverc.com/results/?id=44&p=view_race_result" },
-      { id: "46", label: "Aggregate result", url: "https://rcra.liverc.com/results/?id=46&p=view_race_result" },
+      { id: "44", label: "First label", classLabel: "First label", url: "https://rcra.liverc.com/results/?id=44&p=view_race_result" },
+      { id: "46", label: "Aggregate result", classLabel: "Aggregate result", url: "https://rcra.liverc.com/results/?id=46&p=view_race_result" },
     ]);
   });
 
@@ -223,7 +233,7 @@ describe("LiveRC timing adapter", () => {
     });
     const races = await app.request("/timing/races?eventUrl=https%3A%2F%2Frcra.liverc.com%2Fevents%2F1");
     expect(races.status).toBe(200);
-    expect(await races.json()).toEqual({ races: [{ id: "44", label: "Buggy Heat 2/7", url: "https://rcra.liverc.com/results/?id=44&p=view_race_result" }] });
+    expect(await races.json()).toEqual({ races: [{ id: "44", label: "Buggy Heat 2/7", classLabel: "Buggy", url: "https://rcra.liverc.com/results/?id=44&p=view_race_result" }] });
     const drivers = await app.request("/timing/drivers?raceUrl=https%3A%2F%2Frcra.liverc.com%2Fresults%2F%3Fid%3D44%26p%3Dview_race_result");
     expect(drivers.status).toBe(200);
     expect(await drivers.json()).toEqual({ drivers: [{ name: "BEN HALVERSON", normalizedName: "ben halverson", driverId: "2" }] });

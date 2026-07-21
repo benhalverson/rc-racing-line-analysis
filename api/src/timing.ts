@@ -235,6 +235,15 @@ export function parseEvents(html: string, sourceUrl: string) {
 	});
 }
 
+export function classLabelFromRaceLabel(raceLabel: string) {
+	const label = raceLabel.trim();
+	const withoutRoundSuffix = label.replace(
+		/\s*(?:\(\s*)?(?:(?:heat|round|qualifier)\s+\d+(?:\s*\/\s*\d+)?|[a-z]\d*(?:-?\s*)main|main)(?:\s*\))?$/i,
+		"",
+	).trim();
+	return withoutRoundSuffix || label;
+}
+
 export function parseRaces(html: string, sourceUrl: string) {
 	const source = new URL(sourceUrl);
 	const seen = new Set<string>();
@@ -248,7 +257,7 @@ export function parseRaces(html: string, sourceUrl: string) {
 			/^[1-9]\d*$/.test(id);
 		if (!valid || seen.has(id)) return [];
 		seen.add(id);
-		return [{ id, label: link.label, url: url.toString() }];
+		return [{ id, label: link.label, classLabel: classLabelFromRaceLabel(link.label), url: url.toString() }];
 	});
 }
 

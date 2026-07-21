@@ -34,7 +34,7 @@ export function selectTimingEvent(selection: TimingSelection, event: TimingEvent
 }
 
 export function selectTimingRace(selection: TimingSelection, race: TimingRace): TimingSelection {
-  return { ...selection, race, classLabel: '', driver: undefined, importedResult: undefined, confirmedIdentity: undefined };
+  return { ...selection, race, classLabel: race.classLabel, driver: undefined, importedResult: undefined, confirmedIdentity: undefined };
 }
 
 export function selectTimingDriver(selection: TimingSelection, driver: TimingDriver): TimingSelection {
@@ -43,7 +43,7 @@ export function selectTimingDriver(selection: TimingSelection, driver: TimingDri
 
 export function timingImportReadiness(selection: TimingSelection): string | undefined {
   if (!selection.track || !selection.event || !selection.race || !selection.driver) return 'Select a track, event, race, and driver.';
-  if (!selection.classLabel.trim()) return 'Enter the LiveRC class exactly as shown.';
+  if (!selection.classLabel.trim()) return 'The selected race does not include a class label.';
   return undefined;
 }
 

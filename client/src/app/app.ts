@@ -147,7 +147,6 @@ export class App {
     this.timingApi.drivers(race.url).subscribe({ next: (value) => { if (this.timingSelection().race === race) this.drivers.set(value.drivers); }, error: (error) => { if (this.timingSelection().race === race) this.timingError.set(timingError(error, 'Unable to load drivers for this race.')); } });
   }
   chooseDriver(driver: TimingDriver | undefined) { if (driver) this.timingSelection.update((selection) => selectTimingDriver(selection, driver)); }
-  setClassLabel(classLabel: string) { this.timingSelection.update((selection) => ({ ...selection, classLabel, importedResult: undefined, confirmedIdentity: undefined })); }
   reviewSelectedTiming() {
     const selection = this.timingSelection();
     if (!timingImportReadiness(selection)) this.timingSelection.set(confirmTimingSelection(selection));
@@ -167,7 +166,7 @@ export class App {
       next: (value) => this.timingSelection.set({
         track: { host: value.trackHost, name: value.trackName, url: value.trackUrl },
         event: { name: value.eventName, url: value.eventUrl },
-        race: { id: value.raceId ?? 'persisted', label: value.raceLabel, url: value.raceUrl },
+        race: { id: value.raceId ?? 'persisted', label: value.raceLabel, classLabel: value.classLabel, url: value.raceUrl },
         classLabel: value.classLabel,
         driver: { name: value.driverName, normalizedName: value.normalizedDriverName, ...(value.driverId ? { driverId: value.driverId } : {}) },
         importedResult: value,

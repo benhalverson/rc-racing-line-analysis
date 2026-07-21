@@ -42,6 +42,19 @@ describe('App', () => {
     expect(compiled.querySelector('h1')?.textContent).toContain('Local analysis workspace');
   });
 
+  it('shows the selected race class as read-only text', () => {
+    TestBed.overrideProvider(TimingApi, { useValue: { events: vi.fn().mockReturnValue(of({ events: [] })), tracks: vi.fn(), races: vi.fn().mockReturnValue(of({ races: [] })), drivers: vi.fn().mockReturnValue(of({ drivers: [] })), import: vi.fn() } });
+    const fixture = TestBed.createComponent(App);
+    const app = fixture.componentInstance;
+    app.chooseTrack({ host: 'track.liverc.com', name: 'Track', url: 'https://track.liverc.com/' });
+    app.chooseEvent({ name: 'Event', url: 'https://track.liverc.com/event' });
+    app.chooseRace({ id: '1', label: 'Buggy Heat 2/7', classLabel: 'Buggy', url: 'race-url' });
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('#class-label')).toBeNull();
+    expect(fixture.nativeElement.textContent).toContain('Class: Buggy');
+    fixture.destroy();
+  });
+
   it('disables Begin calibration once calibration is active', () => {
     const fixture = TestBed.createComponent(App);
     fixture.componentInstance.analysis.set({
@@ -103,14 +116,13 @@ describe('App', () => {
     const app = fixture.componentInstance;
     app.chooseTrack({ host: 'track', name: 'Track', url: 'track-url' });
     app.chooseEvent({ name: 'Event', url: 'event-url' });
-    app.chooseRace({ id: '1', label: 'Main', url: 'race-url' });
-    app.setClassLabel('Buggy');
+    app.chooseRace({ id: '1', label: 'Buggy A-Main', classLabel: 'Buggy', url: 'race-url' });
     oldDrivers.next({ drivers: [{ name: 'Alex Smith', normalizedName: 'alex smith' }, { name: 'Alex Smith', normalizedName: 'alex smith' }] });
     await fixture.whenStable();
     const options = fixture.nativeElement.querySelectorAll('#driver-choice option');
     expect(options).toHaveLength(3);
     expect(options[1].getAttribute('value')).not.toBe(options[2].getAttribute('value'));
-    app.chooseRace({ id: '2', label: 'Other Main', url: 'other-race-url' });
+    app.chooseRace({ id: '2', label: 'Other Main', classLabel: 'Other', url: 'other-race-url' });
     oldDrivers.next({ drivers: [{ name: 'Old Driver', normalizedName: 'old driver' }] });
     await fixture.whenStable();
     expect(app.drivers()).toEqual([]);
@@ -128,18 +140,21 @@ describe('App', () => {
     const app = fixture.componentInstance;
     app.chooseTrack({ host: 'track.liverc.com', name: 'Track', url: 'https://track.liverc.com/' });
     app.chooseEvent({ name: 'Event', url: 'https://track.liverc.com/event' });
-    app.chooseRace({ id: '44', label: 'Main', url: 'https://track.liverc.com/results/?id=44&p=view_race_result' });
+    app.chooseRace({ id: '44', label: 'Buggy A-Main', classLabel: 'Buggy', url: 'https://track.liverc.com/results/?id=44&p=view_race_result' });
     app.chooseDriver({ name: 'Alex Smith', normalizedName: 'alex smith', driverId: '7' });
-    app.setClassLabel('Buggy');
     app.importSelectedTiming();
     expect(importTiming).not.toHaveBeenCalled();
     app.reviewSelectedTiming();
     app.importSelectedTiming();
     expect(importTiming).toHaveBeenCalledTimes(1);
-    app.setClassLabel('Truggy');
+    app.chooseRace({ id: '45', label: 'Truggy A-Main', classLabel: 'Truggy', url: 'https://track.liverc.com/results/?id=45&p=view_race_result' });
+    app.chooseDriver({ name: 'Alex Smith', normalizedName: 'alex smith', driverId: '7' });
     app.importSelectedTiming();
     expect(importTiming).toHaveBeenCalledTimes(1);
     expect(app.timingError()).toContain('Review and confirm');
+    app.reviewSelectedTiming();
+    app.importSelectedTiming();
+    expect(importTiming).toHaveBeenCalledTimes(2);
     fixture.destroy();
   });
 
