@@ -24,4 +24,17 @@ describe('calibration marker state', () => {
     expect(detected.markers).toHaveLength(1);
     expect(detected.markers[0]).toMatchObject({ position: { x: 0.8, y: 0.7 }, source: 'detected' });
   });
+
+  it('allows manual markers to complete calibration when detection finds none', () => {
+    const state = {
+      ...emptyCalibration(),
+      raceStartSeconds: 1,
+      markerReferenceSeconds: 2,
+      carSelectionSeconds: 3,
+      markerDetectionStatus: 'empty' as const,
+      markers: [{ id: 'manual-1', position: { x: 0.2, y: 0.3 }, source: 'manual' as const }],
+      selectedCarBox: { x: 0, y: 0, width: 0.2, height: 0.2 },
+    };
+    expect(calibrationReadiness(state)).toBeNull();
+  });
 });

@@ -93,7 +93,7 @@ export class App {
         error: () => this.message.set('Unable to create draft.'),
       });
   }
-  startCalibration() { const current = this.analysis(); if (current?.state !== 'draft') return; this.api.startCalibration(current.id).subscribe({ next: (value) => this.analysis.set(value), error: (error) => this.calibrationError.set(timingError(error, 'Unable to start calibration.')) }); }
+  startCalibration() { const current = this.analysis(); if (current?.state !== 'draft') return; this.api.startCalibration(current.id).subscribe({ next: (value) => { this.analysis.set(value); this.calibrationMode.set('car'); }, error: (error) => this.calibrationError.set(timingError(error, 'Unable to start calibration.')) }); }
   setRaceStart(seconds: number) { this.calibration.update((state) => ({ ...state, raceStartSeconds: finiteOrNull(seconds) })); this.calibrationMode.set('idle'); }
   setMarkerReference(seconds: number) { this.calibration.update((state) => ({ ...state, markerReferenceSeconds: finiteOrNull(seconds), markers: [], markerDetectionStatus: 'not-run' })); this.calibrationMode.set('marker'); }
   setCarSelection(seconds: number) { this.calibration.update((state) => ({ ...state, carSelectionSeconds: finiteOrNull(seconds) })); this.calibrationMode.set('car'); }

@@ -13,7 +13,7 @@ export function calibrationReadiness(state: CalibrationState): string | null {
   if (state.raceStartSeconds === null) return 'Set race start on the video.';
   if (state.markerReferenceSeconds === null) return 'Choose a marker frame.';
   if (state.markerDetectionStatus === 'not-run') return 'Run green marker detection on the selected frame.';
-  if (state.markerDetectionStatus === 'empty') return 'Detection found no green markers. Choose another frame or run detection again.';
+  if (state.markerDetectionStatus === 'empty' && !state.markers.length) return 'Detection found no green markers. Choose another frame or run detection again.';
   if (!state.markers.length) return 'Review the detected markers and keep at least one marker.';
   if (state.carSelectionSeconds === null || !state.selectedCarBox) return 'Choose a car frame and drag a box around the car.';
   if (!isNormalizedBox(state.selectedCarBox)) return 'Redraw the car box so it stays inside the video frame.';
@@ -23,6 +23,6 @@ export function calibrationReadiness(state: CalibrationState): string | null {
 export function markerStatus(state: CalibrationState): string {
   if (state.markerReferenceSeconds === null) return 'Marker frame not selected.';
   if (state.markerDetectionStatus === 'not-run') return 'Detection not yet run.';
-  if (state.markerDetectionStatus === 'empty') return 'Detection returned no markers.';
+  if (state.markerDetectionStatus === 'empty') return state.markers.length ? 'Manual markers available.' : 'Detection returned no markers.';
   return state.markers.length ? 'Markers available for review.' : 'Review the detected markers and keep at least one marker.';
 }

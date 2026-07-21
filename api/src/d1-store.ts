@@ -32,7 +32,8 @@ export class D1AnalysisStore implements AnalysisStore {
   async createDraft(input: CreateAnalysisInput): Promise<Analysis> {
     const now = new Date().toISOString();
     const id = crypto.randomUUID();
-    await this.db.insert(analyses).values({ id, videoPath: `browser-sqlite://${input.localVideoRef?.id ?? input.videoPath}`, videoName: input.videoName, carDescription: input.carDescription ?? null, state: "draft", phase: "created", progress: 0, checkpoint: null, error: null, createdAt: now, updatedAt: now, videoStorage: "browser-sqlite", localVideoRef: JSON.stringify(input.localVideoRef ?? { id: input.videoPath, name: input.videoName, mimeType: "video/*", size: 0, lastModified: 0 }), acceptedCorrectionSetId: null }).run();
+    const videoId = (input.localVideoRef?.id ?? input.videoPath).replace(/^browser-sqlite:\/\//, "");
+    await this.db.insert(analyses).values({ id, videoPath: `browser-sqlite://${videoId}`, videoName: input.videoName, carDescription: input.carDescription ?? null, state: "draft", phase: "created", progress: 0, checkpoint: null, error: null, createdAt: now, updatedAt: now, videoStorage: "browser-sqlite", localVideoRef: JSON.stringify(input.localVideoRef ?? { id: videoId, name: input.videoName, mimeType: "video/*", size: 0, lastModified: 0 }), acceptedCorrectionSetId: null }).run();
     const analysis = await this.get(id);
     if (!analysis) throw new Error("analysis was not persisted");
     return analysis;

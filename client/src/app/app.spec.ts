@@ -75,6 +75,25 @@ describe('App', () => {
     fixture.destroy();
   });
 
+  it('enables car dragging when calibration starts', () => {
+    const started = {
+      id: 'analysis-1', videoPath: 'browser-sqlite://video-1', videoName: 'race.mp4', carDescription: null,
+      state: 'awaiting_calibration' as const, phase: 'calibrating' as const, progress: 0, checkpoint: 'calibration-started',
+      error: null, createdAt: '', updatedAt: '', videoStorage: 'browser-sqlite' as const,
+      localVideoRef: { id: 'video-1', name: 'race.mp4', mimeType: 'video/mp4', size: 1, lastModified: 1 },
+      acceptedCorrectionSetId: null,
+    };
+    TestBed.overrideProvider(AnalysisApi, { useValue: { startCalibration: vi.fn().mockReturnValue(of(started)) } });
+    const fixture = TestBed.createComponent(App);
+    const app = fixture.componentInstance;
+    app.analysis.set({ ...started, state: 'draft', phase: 'created' });
+
+    app.startCalibration();
+
+    expect(app.calibrationMode()).toBe('car');
+    fixture.destroy();
+  });
+
   it('fills the video path as soon as a file is selected', () => {
     TestBed.overrideProvider(BrowserSqliteStore, { useValue: { saveVideo: vi.fn().mockResolvedValue({ id: 'video-1' }) } });
     const fixture = TestBed.createComponent(App);

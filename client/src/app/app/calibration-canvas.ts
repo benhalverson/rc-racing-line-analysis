@@ -26,7 +26,6 @@ export class CalibrationCanvas implements AfterViewInit, OnChanges, OnDestroy {
   @Output() videoLoaded = new EventEmitter<void>();
   @ViewChild('video', { static: true }) private videoElement!: ElementRef<HTMLVideoElement>;
   @ViewChild('canvas', { static: true }) private canvasElement!: ElementRef<HTMLCanvasElement>;
-  @ViewChild('hitArea', { static: true }) private hitAreaElement!: ElementRef<HTMLDivElement>;
 
   readonly currentTime = signal(0);
   readonly duration = signal(0);
@@ -196,7 +195,7 @@ export class CalibrationCanvas implements AfterViewInit, OnChanges, OnDestroy {
   }
 
   private normalizedPoint(event: PointerEvent): NormalizedPoint | undefined {
-    const rect = this.hitAreaElement.nativeElement.getBoundingClientRect();
+    const rect = this.canvasElement.nativeElement.getBoundingClientRect();
     if (!rect.width || !rect.height) return undefined;
     return { x: clamp((event.clientX - rect.left) / rect.width), y: clamp((event.clientY - rect.top) / rect.height) };
   }
@@ -206,21 +205,36 @@ export class CalibrationCanvas implements AfterViewInit, OnChanges, OnDestroy {
     const width = this.videoWidth();
     const height = this.videoHeight();
     if (!canvas || !width || !height) return;
-    canvas.width = width;
-    canvas.height = height;
+    if (canvas.width !== width) canvas.width = width;
+    if (canvas.height !== height) canvas.height = height;
     const context = canvas.getContext('2d');
     if (!context) return;
     context.clearRect(0, 0, width, height);
     context.lineWidth = Math.max(2, width / 400);
-    for (const marker of this.markers) {
+    for (const [index, marker] of this.markers.entries()) {
       const x = marker.position.x * width;
       const y = marker.position.y * height;
       context.fillStyle = marker.source === 'detected' ? '#39d98a' : '#f4c95d';
+      const markerRadius = Math.max(5, width / 120);
       context.beginPath();
-      context.arc(x, y, Math.max(5, width / 120), 0, Math.PI * 2);
+      context.arc(x, y, markerRadius, 0, Math.PI * 2);
       context.fill();
       context.strokeStyle = '#17202b';
       context.stroke();
+      const labelRadius = Math.max(18, width / 70);
+      const labelX = Math.min(width - labelRadius, Math.max(labelRadius, x + markerRadius + labelRadius));
+      const labelY = Math.min(height - labelRadius, Math.max(labelRadius, y - markerRadius - labelRadius));
+      context.fillStyle = '#17202b';
+      context.beginPath();
+      context.arc(labelX, labelY, labelRadius, 0, Math.PI * 2);
+      context.fill();
+      context.strokeStyle = '#ffffff';
+      context.stroke();
+      context.fillStyle = '#ffffff';
+      context.font = `700 ${Math.max(16, width / 110)}px sans-serif`;
+      context.textAlign = 'center';
+      context.textBaseline = 'middle';
+      context.fillText(String(index + 1), labelX, labelY);
     }
     const box = this.dragStart && this.dragCurrent ? boxFromPoints(this.dragStart, this.dragCurrent) : this.selectedCarBox;
     if (box) {

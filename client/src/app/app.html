@@ -45,7 +45,7 @@
     <section class="panel calibration-panel">
       <div class="section-heading"><div><p class="eyebrow">BROWSER SAM3 CALIBRATION</p><h2>Set the race geometry</h2></div><span class="state">{{ current.state }}</span></div>
       <p class="meta">Video stays in browser SQLite. SAM3 runs locally with WebGPU first, then WASM fallback.</p>
-      <button type="button" (click)="startCalibration()" [disabled]="!canStartCalibration(current.state)">Begin calibration</button>
+      <button type="button" (click)="startCalibration()" [disabled]="!canStartCalibration(current.state)">Enable calibration</button>
       <app-calibration-canvas #calibrationVideo [videoRef]="localVideoRef()" [markers]="calibration().markers" [selectedCarBox]="calibration().selectedCarBox" [markerReferenceSeconds]="calibration().markerReferenceSeconds" [mode]="calibrationMode()" (markerPlaced)="addCalibrationMarker($event)" (markerMoved)="moveCalibrationMarker($event)" (markersDetected)="replaceDetectedCalibrationMarkers($event)" (carBoxSelected)="setCarBox($event)"></app-calibration-canvas>
       <div class="calibration-controls">
         <button type="button" (click)="setRaceStart(calibrationVideo.currentTime())" [disabled]="!calibrationVideo.isLoaded()">Set race start <small>{{ calibration().raceStartSeconds === null ? 'required' : (calibration().raceStartSeconds | number: '1.2-2') + 's' }}</small></button>
@@ -54,7 +54,7 @@
       </div>
       <p class="calibration-hint">{{ markerStatus(calibration()) }} {{ calibrationReadiness(calibration()) ? ' ' + calibrationReadiness(calibration()) : ' Calibration is ready to save.' }}</p>
       <div class="calibration-actions"><button type="button" (click)="saveCalibration()" [disabled]="!!calibrationReadiness(calibration())">Save correction set</button></div>
-      @if (calibration().markers.length) { <div class="marker-list">@for (marker of calibration().markers; track marker.id) { <span>Marker {{ $index + 1 }} · {{ marker.position.x | number: '1.2-2' }}, {{ marker.position.y | number: '1.2-2' }} <button type="button" class="quiet" (click)="removeCalibrationMarker(marker.id)">Remove</button></span> }</div> }
+      @if (calibration().markers.length) { <div class="marker-list"><p class="marker-list-heading">Markers match the numbered labels on the video.</p>@for (marker of calibration().markers; track marker.id) { <span><strong>Marker {{ $index + 1 }}</strong><small>{{ marker.source === 'detected' ? 'Detected' : 'Manual' }} · {{ marker.position.x | number: '1.2-2' }}, {{ marker.position.y | number: '1.2-2' }}</small><button type="button" class="quiet" [attr.aria-label]="'Remove marker ' + ($index + 1)" (click)="removeCalibrationMarker(marker.id)">Remove</button></span> }</div> }
       @if (calibrationError()) { <p class="error" role="alert">{{ calibrationError() }}</p> }
     </section>
     <section class="panel status">
