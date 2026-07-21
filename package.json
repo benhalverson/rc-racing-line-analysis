@@ -7,7 +7,7 @@
     "dev": "pnpm --dir api dev",
     "start": "pnpm --dir client start",
     "lint": "biome lint api client/src",
-    "test": "vitest run",
+    "test": "vitest run && pnpm --dir client ng test --watch=false --runner=vitest",
     "typecheck": "tsc --noEmit",
     "build": "pnpm run typecheck && pnpm run build:client",
     "build:client": "pnpm --dir client run build"

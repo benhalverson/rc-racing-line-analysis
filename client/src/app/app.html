@@ -35,13 +35,28 @@
     @if (tracks().length) { <div class="choice-list"> @for (track of tracks(); track track.host) { <button type="button" [class.selected]="timingSelection().track?.host === track.host" (click)="chooseTrack(track)">{{ track.name }} <small>{{ track.host }}</small></button> } </div> }
     @if (timingSelection().track) { <label for="event-choice">Archived event</label><select id="event-choice" (change)="chooseEvent(events()[$any($event.target).selectedIndex - 1])"><option value="">Select an event</option>@for (event of events(); track event.url) {<option [selected]="timingSelection().event?.url === event.url">{{ event.name }}</option>}</select> }
     @if (timingSelection().event) { <label for="race-choice">Heat or main event</label><select id="race-choice" (change)="chooseRace(races()[$any($event.target).selectedIndex - 1])"><option value="">Select a race</option>@for (race of races(); track race.url) {<option [selected]="timingSelection().race?.url === race.url">{{ race.label }}</option>}</select> }
-    @if (timingSelection().race) { <label for="class-label">Class exactly as shown by LiveRC</label><input id="class-label" [value]="timingSelection().classLabel" (input)="setClassLabel($any($event.target).value)" placeholder="Buggy" /><label for="driver-choice">Driver</label><select id="driver-choice" (change)="chooseDriver(drivers()[$any($event.target).selectedIndex - 1])"><option value="">Select a driver</option>@for (driver of drivers(); track driverOptionKey(driver, $index)) {<option [value]="driverOptionKey(driver, $index)" [selected]="timingSelection().driver === driver">{{ driver.name }}</option>}</select> }
+    @if (timingSelection().race) { <p class="meta">Class: <strong>{{ timingSelection().classLabel }}</strong></p><label for="driver-choice">Driver</label><select id="driver-choice" (change)="chooseDriver(drivers()[$any($event.target).selectedIndex - 1])"><option value="">Select a driver</option>@for (driver of drivers(); track driverOptionKey(driver, $index)) {<option [value]="driverOptionKey(driver, $index)" [selected]="timingSelection().driver === driver">{{ driver.name }}</option>}</select> }
     @if (timingSelection().driver && timingSelection().classLabel.trim()) { <div class="selection-review"><p class="meta">Track: {{ timingSelection().track?.name }} · Event: {{ timingSelection().event?.name }} · Race: {{ timingSelection().race?.label }} · Class: {{ timingSelection().classLabel }} · Driver: {{ timingSelection().driver?.name }} · Race ID: {{ timingSelection().race?.id }}</p><button type="button" (click)="reviewSelectedTiming()" [disabled]="isTimingConfirmed()">Review/confirm selected result</button><button type="button" (click)="importSelectedTiming()" [disabled]="!isTimingConfirmed()">Import timing</button></div> }
     @if (timingSelection().importedResult; as imported) { <p class="success" role="status">{{ imported.driverName }} · {{ imported.laps.length }} laps imported and cached locally.</p> }
     @if (timingError()) { <p class="error" role="alert">{{ timingError() }}</p> }
   </section>
   <section class="panel saved-imports"><div class="section-heading"><h2>Saved timing imports</h2><button type="button" (click)="loadSavedImports()">Load saved imports</button></div>@if (savedImports().length) { <div class="choice-list"> @for (saved of savedImports(); track saved.id) { <button type="button" (click)="reopenImport(saved.id)">{{ saved.driverName }} · {{ saved.raceLabel }} · {{ saved.classLabel }} <small>{{ saved.fetchedAt }} <span>Reopen</span></small></button> } </div> } @else { <p class="meta">Load persisted imports to reopen timing without contacting LiveRC.</p> }</section>
   @if (analysis(); as current) {
+    <section class="panel calibration-panel">
+      <div class="section-heading"><div><p class="eyebrow">BROWSER SAM3 CALIBRATION</p><h2>Set the race geometry</h2></div><span class="state">{{ current.state }}</span></div>
+      <p class="meta">Video stays in browser SQLite. SAM3 runs locally with WebGPU first, then WASM fallback.</p>
+      <button type="button" (click)="startCalibration()" [disabled]="!canStartCalibration(current.state)">Enable calibration</button>
+      <app-calibration-canvas #calibrationVideo [videoRef]="localVideoRef()" [markers]="calibration().markers" [selectedCarBox]="calibration().selectedCarBox" [markerReferenceSeconds]="calibration().markerReferenceSeconds" [mode]="calibrationMode()" (markerPlaced)="addCalibrationMarker($event)" (markerMoved)="moveCalibrationMarker($event)" (markersDetected)="replaceDetectedCalibrationMarkers($event)" (carBoxSelected)="setCarBox($event)"></app-calibration-canvas>
+      <div class="calibration-controls">
+        <button type="button" (click)="setRaceStart(calibrationVideo.currentTime())" [disabled]="!calibrationVideo.isLoaded()">Set race start <small>{{ calibration().raceStartSeconds === null ? 'required' : (calibration().raceStartSeconds | number: '1.2-2') + 's' }}</small></button>
+        <button type="button" (click)="setMarkerReference(calibrationVideo.currentTime())" [disabled]="!calibrationVideo.isLoaded()" [class.active]="calibrationMode() === 'marker'">Set marker frame <small>{{ calibration().markerReferenceSeconds === null ? 'then place markers' : (calibration().markerReferenceSeconds | number: '1.2-2') + 's' }}</small></button>
+        <button type="button" (click)="setCarSelection(calibrationVideo.currentTime())" [disabled]="!calibrationVideo.isLoaded()" [class.active]="calibrationMode() === 'car'">Set car frame <small>{{ calibration().carSelectionSeconds === null ? 'then drag a box' : (calibration().carSelectionSeconds | number: '1.2-2') + 's' }}</small></button>
+      </div>
+      <p class="calibration-hint">{{ markerStatus(calibration()) }} {{ calibrationReadiness(calibration()) ? ' ' + calibrationReadiness(calibration()) : ' Calibration is ready to save.' }}</p>
+      <div class="calibration-actions"><button type="button" (click)="saveCalibration()" [disabled]="!!calibrationReadiness(calibration())">Save correction set</button></div>
+      @if (calibration().markers.length) { <div class="marker-list"><p class="marker-list-heading">Markers match the numbered labels on the video.</p>@for (marker of calibration().markers; track marker.id) { <span><strong>Marker {{ $index + 1 }}</strong><small>{{ marker.source === 'detected' ? 'Detected' : 'Manual' }} · {{ marker.position.x | number: '1.2-2' }}, {{ marker.position.y | number: '1.2-2' }}</small><button type="button" class="quiet" [attr.aria-label]="'Remove marker ' + ($index + 1)" (click)="removeCalibrationMarker(marker.id)">Remove</button></span> }</div> }
+      @if (calibrationError()) { <p class="error" role="alert">{{ calibrationError() }}</p> }
+    </section>
     <section class="panel status">
       <div>
         <p class="eyebrow">CURRENT ANALYSIS</p>
@@ -56,7 +71,7 @@
       </p>
       <div class="actions">
         @if (
-          current.state === 'draft' || current.state === 'cancelled' || current.state === 'failed'
+          current.state === 'ready' || current.state === 'cancelled' || current.state === 'failed'
         ) {
           <button type="button" (click)="queue()">Queue batch</button>
         }

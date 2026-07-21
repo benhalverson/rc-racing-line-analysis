@@ -3,13 +3,18 @@ import { provideHttpClient } from '@angular/common/http';
 import { of, Subject, throwError } from 'rxjs';
 import { vi } from 'vitest';
 import { App } from './app';
+import { AnalysisApi } from './app/analysis-api';
+import { BrowserSqliteStore } from './app/browser-sqlite';
 import { TimingApi } from './app/timing-api';
 
 describe('App', () => {
   beforeEach(async () => {
     await TestBed.configureTestingModule({
       imports: [App],
-      providers: [provideHttpClient()],
+      providers: [
+        provideHttpClient(),
+        { provide: BrowserSqliteStore, useValue: { saveVideo: vi.fn(), loadVideo: vi.fn(), saveCorrectionSet: vi.fn() } },
+      ],
     }).compileComponents();
   });
 
@@ -37,6 +42,90 @@ describe('App', () => {
     expect(compiled.querySelector('h1')?.textContent).toContain('Local analysis workspace');
   });
 
+  it('shows the selected race class as read-only text', () => {
+    TestBed.overrideProvider(TimingApi, { useValue: { events: vi.fn().mockReturnValue(of({ events: [] })), tracks: vi.fn(), races: vi.fn().mockReturnValue(of({ races: [] })), drivers: vi.fn().mockReturnValue(of({ drivers: [] })), import: vi.fn() } });
+    const fixture = TestBed.createComponent(App);
+    const app = fixture.componentInstance;
+    app.chooseTrack({ host: 'track.liverc.com', name: 'Track', url: 'https://track.liverc.com/' });
+    app.chooseEvent({ name: 'Event', url: 'https://track.liverc.com/event' });
+    app.chooseRace({ id: '1', label: 'Buggy Heat 2/7', classLabel: 'Buggy', url: 'race-url' });
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('#class-label')).toBeNull();
+    expect(fixture.nativeElement.textContent).toContain('Class: Buggy');
+    fixture.destroy();
+  });
+
+  it('disables Begin calibration once calibration is active', () => {
+    const fixture = TestBed.createComponent(App);
+    fixture.componentInstance.analysis.set({
+      id: 'analysis-1', videoPath: 'browser-sqlite://video-1', videoName: 'race.mp4', carDescription: null,
+      state: 'awaiting_calibration', phase: 'calibrating', progress: 0, checkpoint: 'calibration-started',
+      error: null, createdAt: '', updatedAt: '', videoStorage: 'browser-sqlite',
+      localVideoRef: { id: 'video-1', name: 'race.mp4', mimeType: 'video/mp4', size: 1, lastModified: 1 },
+      acceptedCorrectionSetId: null,
+    });
+    fixture.detectChanges();
+    const panel = fixture.nativeElement as HTMLElement;
+    expect(panel.querySelector('.calibration-panel button')?.hasAttribute('disabled')).toBe(true);
+    expect(panel.querySelector('app-calibration-canvas')).toBeTruthy();
+    expect(panel.textContent).toContain('Set race start');
+    expect(panel.textContent).toContain('Set marker frame');
+    expect(panel.textContent).toContain('Set car frame');
+    expect(panel.textContent).toContain('Set race start on the video.');
+    fixture.destroy();
+  });
+
+  it('enables car dragging when calibration starts', () => {
+    const started = {
+      id: 'analysis-1', videoPath: 'browser-sqlite://video-1', videoName: 'race.mp4', carDescription: null,
+      state: 'awaiting_calibration' as const, phase: 'calibrating' as const, progress: 0, checkpoint: 'calibration-started',
+      error: null, createdAt: '', updatedAt: '', videoStorage: 'browser-sqlite' as const,
+      localVideoRef: { id: 'video-1', name: 'race.mp4', mimeType: 'video/mp4', size: 1, lastModified: 1 },
+      acceptedCorrectionSetId: null,
+    };
+    TestBed.overrideProvider(AnalysisApi, { useValue: { startCalibration: vi.fn().mockReturnValue(of(started)) } });
+    const fixture = TestBed.createComponent(App);
+    const app = fixture.componentInstance;
+    app.analysis.set({ ...started, state: 'draft', phase: 'created' });
+
+    app.startCalibration();
+
+    expect(app.calibrationMode()).toBe('car');
+    fixture.destroy();
+  });
+
+  it('fills the video path as soon as a file is selected', () => {
+    TestBed.overrideProvider(BrowserSqliteStore, { useValue: { saveVideo: vi.fn().mockResolvedValue({ id: 'video-1' }) } });
+    const fixture = TestBed.createComponent(App);
+    fixture.componentInstance.selectVideo({ target: { files: [new File(['video'], 'race.mp4')] } } as unknown as Event);
+    expect(fixture.componentInstance.videoPath()).toBe('race.mp4');
+    fixture.destroy();
+  });
+
+  it('uses the stored video reference and original filename when creating a draft', async () => {
+    const localVideoRef = { id: 'video-1', name: 'race.mp4', mimeType: 'video/mp4', size: 10, lastModified: 42 };
+    let resolveSave!: (ref: typeof localVideoRef) => void;
+    const saveVideo = vi.fn().mockReturnValue(new Promise<typeof localVideoRef>((resolve) => { resolveSave = resolve; }));
+    const createDraft = vi.fn().mockReturnValue(of({}));
+    TestBed.overrideProvider(BrowserSqliteStore, { useValue: { saveVideo } });
+    TestBed.overrideProvider(AnalysisApi, { useValue: { createDraft } });
+    const fixture = TestBed.createComponent(App);
+    const app = fixture.componentInstance;
+
+    app.selectVideo({ target: { files: [new File(['video'], 'race.mp4', { type: 'video/mp4' })] } } as unknown as Event);
+    const draftPromise = app.createDraft();
+    resolveSave(localVideoRef);
+    await draftPromise;
+
+    expect(createDraft).toHaveBeenCalledWith({
+      videoPath: 'browser-sqlite://video-1',
+      videoName: 'race.mp4',
+      videoStorage: 'browser-sqlite',
+      localVideoRef,
+    });
+    fixture.destroy();
+  });
+
   it('renders duplicate driver names as distinct options and ignores an obsolete driver response', async () => {
     const oldDrivers = new Subject<{ drivers: { name: string; normalizedName: string; driverId?: string }[] }>();
     const currentDrivers = new Subject<{ drivers: { name: string; normalizedName: string; driverId?: string }[] }>();
@@ -46,14 +135,13 @@ describe('App', () => {
     const app = fixture.componentInstance;
     app.chooseTrack({ host: 'track', name: 'Track', url: 'track-url' });
     app.chooseEvent({ name: 'Event', url: 'event-url' });
-    app.chooseRace({ id: '1', label: 'Main', url: 'race-url' });
-    app.setClassLabel('Buggy');
+    app.chooseRace({ id: '1', label: 'Buggy A-Main', classLabel: 'Buggy', url: 'race-url' });
     oldDrivers.next({ drivers: [{ name: 'Alex Smith', normalizedName: 'alex smith' }, { name: 'Alex Smith', normalizedName: 'alex smith' }] });
     await fixture.whenStable();
     const options = fixture.nativeElement.querySelectorAll('#driver-choice option');
     expect(options).toHaveLength(3);
     expect(options[1].getAttribute('value')).not.toBe(options[2].getAttribute('value'));
-    app.chooseRace({ id: '2', label: 'Other Main', url: 'other-race-url' });
+    app.chooseRace({ id: '2', label: 'Other Main', classLabel: 'Other', url: 'other-race-url' });
     oldDrivers.next({ drivers: [{ name: 'Old Driver', normalizedName: 'old driver' }] });
     await fixture.whenStable();
     expect(app.drivers()).toEqual([]);
@@ -71,18 +159,21 @@ describe('App', () => {
     const app = fixture.componentInstance;
     app.chooseTrack({ host: 'track.liverc.com', name: 'Track', url: 'https://track.liverc.com/' });
     app.chooseEvent({ name: 'Event', url: 'https://track.liverc.com/event' });
-    app.chooseRace({ id: '44', label: 'Main', url: 'https://track.liverc.com/results/?id=44&p=view_race_result' });
+    app.chooseRace({ id: '44', label: 'Buggy A-Main', classLabel: 'Buggy', url: 'https://track.liverc.com/results/?id=44&p=view_race_result' });
     app.chooseDriver({ name: 'Alex Smith', normalizedName: 'alex smith', driverId: '7' });
-    app.setClassLabel('Buggy');
     app.importSelectedTiming();
     expect(importTiming).not.toHaveBeenCalled();
     app.reviewSelectedTiming();
     app.importSelectedTiming();
     expect(importTiming).toHaveBeenCalledTimes(1);
-    app.setClassLabel('Truggy');
+    app.chooseRace({ id: '45', label: 'Truggy A-Main', classLabel: 'Truggy', url: 'https://track.liverc.com/results/?id=45&p=view_race_result' });
+    app.chooseDriver({ name: 'Alex Smith', normalizedName: 'alex smith', driverId: '7' });
     app.importSelectedTiming();
     expect(importTiming).toHaveBeenCalledTimes(1);
     expect(app.timingError()).toContain('Review and confirm');
+    app.reviewSelectedTiming();
+    app.importSelectedTiming();
+    expect(importTiming).toHaveBeenCalledTimes(2);
     fixture.destroy();
   });
 

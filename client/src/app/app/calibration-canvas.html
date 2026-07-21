@@ -1,0 +1,17 @@
+<div class="calibration-canvas-shell">
+  <div class="video-stage" [class.is-loading]="loading()">
+    <!-- biome-ignore lint/a11y/useMediaCaption: calibration footage has no supplied caption track -->
+    <video #video controls playsinline preload="metadata" (loadedmetadata)="onLoadedMetadata()" (timeupdate)="onTimeUpdate()"></video>
+    <canvas #canvas aria-label="Video calibration canvas"></canvas>
+    <div #hitArea class="calibration-hit-area" (pointerdown)="pointerDown($event)" (pointermove)="pointerMove($event)" (pointerup)="pointerUp($event)" (pointercancel)="pointerCancel()"></div>
+    @if (!isLoaded() && !loading() && !error()) { <p class="empty-stage">Stored video will appear here.</p> }
+    @if (loading()) { <p class="empty-stage">Loading stored video…</p> }
+  </div>
+  <div class="video-readout" aria-live="polite"><span>{{ currentTime() | number: '1.2-2' }}s</span><span>/ {{ duration() | number: '1.2-2' }}s</span><span class="mode-label">{{ mode === 'marker' ? 'Place markers' : mode === 'car' ? 'Drag around the car' : 'Choose an action below' }}</span></div>
+  @if (error()) { <p class="error" role="alert">{{ error() }}</p> }
+  <div class="detection-controls">
+    <button type="button" (click)="detectGreenMarkers()" [disabled]="!isLoaded() || markerReferenceSeconds === null || detecting()">{{ detecting() ? 'Detecting green markers…' : 'Detect green markers' }}</button>
+    @if (detectionCount() !== null) { <span aria-live="polite">{{ detectionCount() }} green marker{{ detectionCount() === 1 ? '' : 's' }} detected.</span> }
+  </div>
+  @if (detectionError()) { <p class="error" role="alert">{{ detectionError() }}</p> }
+</div>

@@ -4,7 +4,7 @@ import { buildTimingImportRequest, emptyTimingSelection, selectTimingEvent, sele
 
 const track: TimingTrack = { host: 'track.liverc.com', name: 'Track', url: 'https://track.liverc.com/' };
 const event: TimingEvent = { name: 'Event', url: 'https://track.liverc.com/event' };
-const race: TimingRace = { id: '1', label: 'A Main', url: 'https://track.liverc.com/race' };
+const race: TimingRace = { id: '1', label: 'Buggy A-Main', classLabel: 'Buggy', url: 'https://track.liverc.com/race' };
 const driver: TimingDriver = { name: 'Alex Smith', normalizedName: 'alex smith' };
 
 describe('timing selection', () => {
@@ -16,13 +16,13 @@ describe('timing selection', () => {
     expect(selectTimingTrack(selection, { ...track, url: 'https://other.liverc.com/' }).driver).toBeUndefined();
   });
 
-  it('clears race descendants on event changes and requires a new class on race changes', () => {
+  it('clears race descendants on event changes and derives the class on race changes', () => {
     const selection = { track, event, race, classLabel: 'Buggy', driver, importedResult: undefined };
     const eventSelection = selectTimingEvent(selection, { name: 'Other event', url: 'other-event' });
     expect(eventSelection.race).toBeUndefined();
     expect(eventSelection.classLabel).toBe('');
     expect(eventSelection.driver).toBeUndefined();
-    expect(selectTimingRace(selection, { ...race, url: 'other-race' }).classLabel).toBe('');
+    expect(selectTimingRace(selection, { ...race, url: 'other-race', classLabel: 'Truggy' }).classLabel).toBe('Truggy');
   });
 
   it('validates readiness and omits nullable IDs from the import payload', () => {

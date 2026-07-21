@@ -1,6 +1,7 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
+import type { CorrectionSet, CorrectionSetPayload, LocalVideoRef, VideoStorage } from '../../../../shared/calibration-contract';
 
 export interface Analysis {
   id: string;
@@ -14,6 +15,9 @@ export interface Analysis {
   error: string | null;
   createdAt: string;
   updatedAt: string;
+  videoStorage: VideoStorage;
+  localVideoRef?: LocalVideoRef;
+  acceptedCorrectionSetId: string | null;
 }
 
 export type AnalysisConnectionState = 'connected' | 'reconnecting' | 'disconnected';
@@ -31,9 +35,14 @@ export class AnalysisApi {
     videoPath: string;
     videoName: string;
     carDescription?: string;
+    videoStorage?: 'browser-sqlite';
+    localVideoRef?: LocalVideoRef;
   }): Observable<Analysis> {
     return this.http.post<Analysis>('/api/analyses', input);
   }
+  startCalibration(id: string) { return this.http.post<Analysis>(`/api/analyses/${id}/calibration/start`, {}); }
+  saveCorrectionSet(id: string, payload: CorrectionSetPayload) { return this.http.post<CorrectionSet>(`/api/analyses/${id}/correction-sets`, payload); }
+  correctionSets(id: string) { return this.http.get<{ correctionSets: CorrectionSet[] }>(`/api/analyses/${id}/correction-sets`); }
   get(id: string): Observable<Analysis> {
     return this.http.get<Analysis>(`/api/analyses/${id}`);
   }

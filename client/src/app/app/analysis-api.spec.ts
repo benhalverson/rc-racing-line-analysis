@@ -44,6 +44,9 @@ const analysis = (state: string): Analysis => ({
   error: null,
   createdAt: '2026-07-13T00:00:00.000Z',
   updatedAt: '2026-07-13T00:00:00.000Z',
+  videoStorage: 'browser-sqlite',
+  localVideoRef: { id: 'video-1', name: 'race.mp4', mimeType: 'video/mp4', size: 1, lastModified: 1 },
+  acceptedCorrectionSetId: null,
 });
 
 describe('AnalysisApi live updates', () => {
