@@ -1,5 +1,6 @@
 import type { Analysis } from "./domain";
 import { errorMessage } from "./errors";
+import type { StabilizationArtifacts, MarkerStabilizationProvider } from "./stabilization";
 
 const phases = [
   { name: 'calibration', phase: 'calibrating' as const, progress: 0.25, checkpoint: 'calibration-complete' },
@@ -26,11 +27,17 @@ export interface AnalysisProcessingService {
   fail(id: string, error: string): Promise<Analysis>;
 }
 
+export type StabilizationProcessing = {
+  provider: MarkerStabilizationProvider;
+  upsertArtifacts: (analysisId: string, artifacts: StabilizationArtifacts) => Promise<void>;
+};
+
 export async function executeAnalysisProcessing(
   id: string,
   step: ProcessingStep,
   processing: AnalysisProcessingService,
   publish: (analysis: Analysis) => Promise<void>,
+  stabilization?: StabilizationProcessing,
 ): Promise<void> {
   try {
     for (const phase of phases) {
@@ -44,6 +51,9 @@ export async function executeAnalysisProcessing(
         if (checkpointOrder.indexOf(current.checkpoint ?? 'queued') >= checkpointOrder.indexOf(phase.checkpoint)) {
           await publish(current);
           return current;
+        }
+        if (phase.name === 'calibration' && stabilization) {
+          await stabilization.upsertArtifacts(id, await stabilization.provider.stabilize());
         }
         const updated = await processing.report(id, phase);
         await publish(updated);
