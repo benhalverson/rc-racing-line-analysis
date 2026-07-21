@@ -80,7 +80,7 @@ export class App {
     this.api
       .createDraft({
         videoPath: this.videoPath(),
-        videoName: this.videoPath().split('/').pop() ?? '',
+        videoName: this.localVideoRef()?.name ?? this.videoPath().split('/').pop() ?? '',
         carDescription: this.carDescription() || undefined,
         videoStorage: 'browser-sqlite',
         localVideoRef: this.localVideoRef(),

@@ -3,6 +3,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { of, Subject, throwError } from 'rxjs';
 import { vi } from 'vitest';
 import { App } from './app';
+import { AnalysisApi } from './app/analysis-api';
 import { BrowserSqliteStore } from './app/browser-sqlite';
 import { TimingApi } from './app/timing-api';
 
@@ -66,6 +67,30 @@ describe('App', () => {
     const fixture = TestBed.createComponent(App);
     fixture.componentInstance.selectVideo({ target: { files: [new File(['video'], 'race.mp4')] } } as unknown as Event);
     expect(fixture.componentInstance.videoPath()).toBe('race.mp4');
+    fixture.destroy();
+  });
+
+  it('uses the stored video reference and original filename when creating a draft', async () => {
+    const localVideoRef = { id: 'video-1', name: 'race.mp4', mimeType: 'video/mp4', size: 10, lastModified: 42 };
+    let resolveSave!: (ref: typeof localVideoRef) => void;
+    const saveVideo = vi.fn().mockReturnValue(new Promise<typeof localVideoRef>((resolve) => { resolveSave = resolve; }));
+    const createDraft = vi.fn().mockReturnValue(of({}));
+    TestBed.overrideProvider(BrowserSqliteStore, { useValue: { saveVideo } });
+    TestBed.overrideProvider(AnalysisApi, { useValue: { createDraft } });
+    const fixture = TestBed.createComponent(App);
+    const app = fixture.componentInstance;
+
+    app.selectVideo({ target: { files: [new File(['video'], 'race.mp4', { type: 'video/mp4' })] } } as unknown as Event);
+    const draftPromise = app.createDraft();
+    resolveSave(localVideoRef);
+    await draftPromise;
+
+    expect(createDraft).toHaveBeenCalledWith({
+      videoPath: 'browser-sqlite://video-1',
+      videoName: 'race.mp4',
+      videoStorage: 'browser-sqlite',
+      localVideoRef,
+    });
     fixture.destroy();
   });
 

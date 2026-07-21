@@ -1,4 +1,5 @@
 import sqlite3InitModule from '@sqlite.org/sqlite-wasm';
+import { resolveSqliteAssetUrl } from './sqlite-asset-url';
 
 type SqliteDatabase = {
   exec(options: unknown): unknown;
@@ -34,7 +35,7 @@ async function initialize() {
   };
   const init = sqlite3InitModule as unknown as (options: { locateFile: (file: string) => string }) => Promise<SqliteModule>;
   const sqlite3 = await init({
-    locateFile: (file: string) => file === 'sqlite3.wasm' ? new URL('/sqlite3.wasm', self.location.origin).href : file,
+    locateFile: (file: string) => resolveSqliteAssetUrl(file, self.location.origin),
   });
   if (!sqlite3.installOpfsSAHPoolVfs || !sqlite3.oo1) throw new Error('OPFS SQLite is unavailable');
   const pool = await sqlite3.installOpfsSAHPoolVfs({ directory: '/rc-racing-line-analysis' });
