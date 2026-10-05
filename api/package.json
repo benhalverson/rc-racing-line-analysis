@@ -11,6 +11,8 @@
     "dev:worker": "wrangler d1 migrations apply rc-racing-line-analysis --local && wrangler dev"
   },
   "dependencies": {
+    "acorn": "^8.18.0",
+    "cheerio": "^1.2.0",
     "drizzle-orm": "^0.44.2",
     "hono": "^4.9.0",
     "zod": "^3.25.0",

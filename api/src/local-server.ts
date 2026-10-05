@@ -1,3 +1,4 @@
+import { withinTimingTimeout } from "./timing-browser";
 import { serve } from "@hono/node-server";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -17,7 +18,7 @@ export function startLocalServer(dataDirectory = resolve(process.env.RC_ANALYSIS
   const workflow = new AnalysisWorkflow(persistence);
   const app = createLocalApp(workflow, persistence, artifacts, videos, (id, signal) => executeLocalStabilization(id, workflow, persistence, artifacts, { signal, resolveVideoPath: async (reference) => videos.resolvePath(reference) }), {
     store: new LocalTimingStore(persistence.db),
-    fetch: async (url) => { const response = await fetch(url, { headers: { "user-agent": "rc-racing-line-analysis/1.0" } }); return { url: response.url, status: response.status, html: await response.text() }; },
+    fetch: (url) => withinTimingTimeout(async () => { const response = await fetch(url, { signal: AbortSignal.timeout(15_000), headers: { "user-agent": "rc-racing-line-analysis/1.0" } }); return { url: response.url, status: response.status, html: await response.text() }; }),
   });
   const server = serve({ fetch: app.fetch, hostname: "127.0.0.1", port });
   return { app, server, persistence };
