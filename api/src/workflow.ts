@@ -36,6 +36,20 @@ export class AnalysisWorkflow {
     return analysis;
   }
 
+  /** Lists saved workspaces through the supported local persistence port. */
+  async listAnalyses(): Promise<Analysis[]> {
+    if (!this.store.listAnalyses) throw new Error('Saved analyses require the local runtime');
+    return this.store.listAnalyses();
+  }
+
+  /** Selects existing immutable correction authority using an atomic optimistic store operation. */
+  async selectCorrectionSet(id: string, correctionSetId: string, expected: { updatedAt: string; acceptedCorrectionSetId: string | null }): Promise<Analysis> {
+    if (!this.store.selectCorrectionSet) throw new Error('Correction selection requires the local runtime');
+    const analysis = await this.store.selectCorrectionSet(id, correctionSetId, expected);
+    await this.onChange?.(analysis);
+    return analysis;
+  }
+
   /** Retrieve an analysis or reject an unknown identifier. */
   async get(id: string): Promise<Analysis> {
     const analysis = await this.store.get(id);
@@ -60,13 +74,15 @@ export class AnalysisWorkflow {
     return this.transition(id, "awaiting_calibration", { phase: "calibrating", checkpoint: "calibration-started", error: null });
   }
   /** Append and accept valid operator decisions only during calibration. */
-  async createAndAcceptCorrectionSet(id: string, payload: Omit<CorrectionSet, "id" | "analysisId" | "version" | "accepted" | "createdAt">) {
+  async createAndAcceptCorrectionSet(id: string, payload: Omit<CorrectionSet, "id" | "analysisId" | "version" | "accepted" | "createdAt">, expected?: { updatedAt: string; acceptedCorrectionSetId: string | null }) {
     const analysis = await this.get(id);
+    if (expected && (analysis.updatedAt !== expected.updatedAt || analysis.acceptedCorrectionSetId !== expected.acceptedCorrectionSetId)) throw new Error('Analysis authority changed; reopen before saving corrections');
     if (analysis.state !== "awaiting_calibration") {
       throw new Error(`correction sets can only be accepted while awaiting calibration, not ${analysis.state}`);
     }
     if (![payload.raceStartSeconds, payload.markerReferenceSeconds, payload.carSelectionSeconds].every((value) => Number.isFinite(value) && value >= 0) || !isNormalizedBox(payload.selectedCarBox)) throw new Error("invalid calibration geometry or time");
     if (payload.markers.length === 0 || new Set(payload.markers.map((marker) => marker.id)).size !== payload.markers.length || payload.markers.some((marker) => !marker.id.trim() || !isNormalizedPoint(marker.position))) throw new Error("invalid marker identities or reference positions");
+    if (this.store.appendAcceptedCorrectionSet) return this.store.appendAcceptedCorrectionSet(id, payload, { updatedAt: analysis.updatedAt, acceptedCorrectionSetId: analysis.acceptedCorrectionSetId ?? null });
     const set = await this.store.createCorrectionSet(id, payload);
     return this.store.acceptCorrectionSet(id, set.id);
   }

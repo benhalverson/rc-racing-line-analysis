@@ -123,7 +123,8 @@ export function createApp(workflow: AnalysisWorkflow, runtime?: AnalysisRuntime,
       const trackUrl = normalizeTrackUrl(requiredQuery(c, "trackUrl"));
       const eventsUrl = new URL("/events/", trackUrl).toString();
       const page = await fetchStructuredTimingPage(timing.fetch, eventsUrl, "events", timing.browser);
-      return c.json({ events: parseEvents(page.html, page.url) });
+      const query = (c.req.query('query') ?? '').trim().normalize('NFKC').toLocaleLowerCase();
+      return c.json({ events: parseEvents(page.html, page.url).filter(event => !query || event.name.normalize('NFKC').toLocaleLowerCase().includes(query)) });
     } catch (error) {
       return timingRouteError(c, error, "unable to read LiveRC events");
     }
@@ -187,7 +188,9 @@ export function createApp(workflow: AnalysisWorkflow, runtime?: AnalysisRuntime,
     try {
       const analysis = await workflow.get(c.req.param("id"));
       if (analysis.videoStorage !== "browser-sqlite" && !(options?.localVideo && analysis.videoStorage === "local-disk")) return c.json({ error: "only browser-sqlite videos are supported" }, 400);
-      const created = await (workflow as AnalysisWorkflowWithCorrections).createAndAcceptCorrectionSet(c.req.param("id"), parsed.data);
+      const updatedAt = c.req.header('x-analysis-updated-at');
+      const expected = updatedAt === undefined ? undefined : z.object({ updatedAt: z.string().datetime(), acceptedCorrectionSetId: z.string().min(1).nullable() }).parse({ updatedAt, acceptedCorrectionSetId: c.req.header('x-accepted-correction-set-id') === 'null' ? null : c.req.header('x-accepted-correction-set-id') });
+      const created = await workflow.createAndAcceptCorrectionSet(c.req.param("id"), parsed.data, expected);
       return c.json(created, 201);
     } catch (error) { return c.json({ error: errorMessage(error) }, 400); }
   });

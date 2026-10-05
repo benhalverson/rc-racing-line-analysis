@@ -65,6 +65,18 @@ export function createLocalApp(workflow: AnalysisWorkflow, persistence: LocalPer
     await next();
   });
   app.get("/runtime", (c) => c.json({ mode: "local-node", videoImportPath: "/local-videos" }));
+  app.get('/analyses', async c => {
+    try { return c.json({ analyses: await workflow.listAnalyses() }); }
+    catch (error) { return c.json({ error: errorMessage(error) }, 400); }
+  });
+  app.post('/analyses/:id/correction-sets/:versionId/accept', async c => {
+    try {
+      const id = c.req.param('id');
+      if (executions.has(id)) throw new Error('Wait for the processing worker to stop before selecting corrections');
+      const input = z.object({ updatedAt: z.string().datetime(), acceptedCorrectionSetId: z.string().min(1).nullable() }).strict().parse(await c.req.json());
+      return c.json(await workflow.selectCorrectionSet(id, c.req.param('versionId'), input));
+    } catch (error) { return c.json({ error: errorMessage(error) }, 400); }
+  });
   app.post("/local-videos", async (c) => {
     try {
       if (!c.req.raw.body) return c.json({ error: "video stream is required" }, 400);

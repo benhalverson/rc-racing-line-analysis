@@ -2,8 +2,8 @@ import { expect, test } from '@playwright/test';
 
 /** Exercises real browser file selection and the local processing lifecycle at its HTTP boundary. */
 test('imports on localhost, preserves accepted marker corrections, and displays excluded regions', async ({ page }) => {
-  const analysis = { id: 'browser-analysis', videoPath: 'local-disk://video-1', videoName: 'race.webm', videoStorage: 'local-disk', state: 'draft', phase: 'created', progress: 0, checkpoint: null, acceptedCorrectionSetId: null, error: null };
-  let accepted = false;
+  const analysis = { id: 'browser-analysis', videoPath: 'local-disk://video-1', videoName: 'race.webm', videoStorage: 'local-disk', state: 'draft', phase: 'created', progress: 0, checkpoint: null, acceptedCorrectionSetId: null, error: null, createdAt: '2026-07-14T00:00:00.000Z', updatedAt: '2026-07-14T00:00:00.000Z' };
+  let accepted = false; let processing = false;
   let imported = false;
   await page.route('**/api/**', async (route) => {
     const path = new URL(route.request().url()).pathname;
@@ -18,6 +18,7 @@ test('imports on localhost, preserves accepted marker corrections, and displays 
       expect(route.request().postDataJSON()).toMatchObject({ videoStorage: 'local-disk', videoPath: analysis.videoPath });
       body = analysis;
     } else if (path.endsWith('/calibration/start')) body = { ...analysis, state: 'awaiting_calibration', phase: 'calibrating' };
+    else if (path.endsWith('/correction-sets') && route.request().method() === 'GET') body = { correctionSets: [] };
     else if (path.endsWith('/correction-sets')) {
       const corrections = route.request().postDataJSON();
       expect(corrections.markers).toHaveLength(3);
@@ -27,8 +28,9 @@ test('imports on localhost, preserves accepted marker corrections, and displays 
     } else if (path.endsWith('/queue')) {
       expect(accepted).toBe(true);
       body = { ...analysis, state: 'queued', acceptedCorrectionSetId: 'accepted-1' };
-    } else if (path.endsWith('/start')) body = { ...analysis, state: 'running' };
+    } else if (path.endsWith('/start')) { processing = true; body = { ...analysis, state: 'running' }; }
     else if (path.endsWith('/artifacts')) body = { stabilization: { totalFrames: 10, usableFrames: 7, unusableRegions: [{ startFrame: 7, endFrame: 9, reason: 'insufficient-markers' }] } };
+    else if (!processing) body = { ...analysis, state: accepted ? 'ready' : 'draft', acceptedCorrectionSetId: accepted ? 'accepted-1' : null };
     else body = { ...analysis, state: 'needs_correction', phase: 'stabilizing', error: 'Unusable stabilization regions' };
     await route.fulfill({ json: body });
   });

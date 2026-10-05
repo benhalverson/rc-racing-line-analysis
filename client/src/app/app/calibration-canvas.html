@@ -1,7 +1,7 @@
 <div class="calibration-canvas-shell">
   <div class="video-stage" [class.is-loading]="loading()">
     <!-- biome-ignore lint/a11y/useMediaCaption: calibration footage has no supplied caption track -->
-    <video #video controls playsinline preload="metadata" (loadedmetadata)="onLoadedMetadata()" (timeupdate)="onTimeUpdate()"></video>
+    <video #video controls playsinline preload="metadata" (loadedmetadata)="onLoadedMetadata()" (timeupdate)="onTimeUpdate()" (error)="onVideoError()"></video>
     <canvas #canvas aria-label="Video calibration canvas"></canvas>
     <div #hitArea class="calibration-hit-area" (pointerdown)="pointerDown($event)" (pointermove)="pointerMove($event)" (pointerup)="pointerUp($event)" (pointercancel)="pointerCancel()"></div>
     @if (!isLoaded() && !loading() && !error()) { <p class="empty-stage">Stored video will appear here.</p> }

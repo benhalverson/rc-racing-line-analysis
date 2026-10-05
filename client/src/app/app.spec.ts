@@ -102,6 +102,24 @@ describe('App', () => {
     fixture.destroy();
   });
 
+  it('clears pending correction controls when moving to a new draft and ignores its obsolete error', async () => {
+    const response = new Subject();
+    const currentResponse = new Subject();
+    const createDraft = vi.fn().mockReturnValueOnce(response).mockReturnValueOnce(currentResponse);
+    TestBed.overrideProvider(AnalysisApi, { useValue: { createDraft } });
+    const fixture = TestBed.createComponent(App); const app = fixture.componentInstance;
+    app.calibrationSaving.set(true); app.correctionBusy.set(true); app.workspaceLoading.set(true);
+    await app.createDraft();
+    expect(app.calibrationSaving()).toBe(false); expect(app.correctionBusy()).toBe(false); expect(app.workspaceLoading()).toBe(false);
+    await app.createDraft();
+    app.message.set('Current workspace');
+    response.error(new Error('failed'));
+    expect(app.message()).toBe('Current workspace');
+    currentResponse.error(new Error('failed'));
+    expect(app.message()).toBe('Unable to create draft.');
+    fixture.destroy();
+  });
+
   it('uses the stored video reference and original filename when creating a draft', async () => {
     const localVideoRef = { id: 'video-1', name: 'race.mp4', mimeType: 'video/mp4', size: 10, lastModified: 42 };
     let resolveSave!: (ref: typeof localVideoRef) => void;

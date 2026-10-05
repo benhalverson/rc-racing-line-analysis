@@ -24,7 +24,7 @@ test.beforeAll(async () => {
       const parsed = new URL(url);
       let html = '<main id="app"></main>';
       if (parsed.hostname === 'live.liverc.com') html = '<a href="https://rcra.liverc.com/"><b>RCRA &amp; Club</b></a>';
-      else if (parsed.pathname === '/events/') html = '<a href="/results/?p=view_event&amp;id=11">Summer Race</a>';
+      else if (parsed.pathname === '/events/') html = '<a href="/results/?p=view_event&amp;id=11">Summer Race</a><a href="/results/?p=view_event&amp;id=12">Winter Race</a>';
       else if (parsed.searchParams.get('p') === 'view_event') html = '<a href="/results/?id=44&amp;p=view_race_result">Buggy Heat 2/7</a><a href="/results/?id=45&amp;p=view_race_result">Buggy Heat 3/7</a>';
       return { url, status: 200, html };
     },
@@ -79,7 +79,11 @@ test('selects the exact repeated heat and duplicate driver, confirms, imports an
   expect(externalRequests).toEqual([]);
   await page.getByRole('button', { name: 'Search tracks', exact: true }).click();
   await page.getByRole('button', { name: /RCRA & Club/ }).click();
-  await page.getByLabel('Archived event').selectOption({ label: 'Summer Race' });
+  await page.getByLabel('Search archived events').fill('missing'); await page.getByRole('button', { name: 'Search events', exact: true }).click();
+  await expect(page.getByText('No archived events match this search.', { exact: true })).toBeVisible();
+  await page.getByLabel('Search archived events').fill('sUmMeR'); await page.getByRole('button', { name: 'Search events', exact: true }).click();
+  await expect(page.getByLabel('Archived event', { exact: true }).locator('option')).toHaveCount(2);
+  await page.getByLabel('Archived event', { exact: true }).selectOption({ label: 'Summer Race' });
   await page.getByLabel('Heat or main event').selectOption({ label: 'Buggy Heat 2/7' });
   await expect(page.getByLabel('Driver').locator('option')).toHaveCount(3);
   await page.getByLabel('Driver').selectOption({ index: 2 });
@@ -94,6 +98,28 @@ test('selects the exact repeated heat and duplicate driver, confirms, imports an
   await page.getByRole('button', { name: /José O'Brien · Buggy Heat 2\/7/ }).click();
   await expect(page.locator('.timing-panel [role=status]')).toContainText('1 laps imported');
   expect(directCalls).toBe(calls);
+  // Real event endpoint responses are reordered to prove stale search results cannot replace the latest query.
+  let releaseEvents!: () => void; let eventsCaptured!: () => void; let eventsFinished!: () => void;
+  const release = new Promise<void>(resolve => { releaseEvents = resolve; });
+  const captured = new Promise<void>(resolve => { eventsCaptured = resolve; });
+  const finished = new Promise<void>(resolve => { eventsFinished = resolve; });
+  let delay = true;
+  await page.route('**/api/timing/events?**', async route => {
+    if (!delay) { await route.continue(); return; }
+    delay = false; const response = await route.fetch(); eventsCaptured(); await release; await route.fulfill({ response }); eventsFinished();
+  });
+  await page.getByLabel('Search archived events').fill('winter'); await page.getByRole('button', { name: 'Search events', exact: true }).click(); await captured;
+  await page.getByLabel('Search archived events').fill('summer'); await page.getByRole('button', { name: 'Search events', exact: true }).click();
+  await expect(page.getByLabel('Archived event', { exact: true }).locator('option')).toHaveCount(2);
+  await expect(page.getByLabel('Archived event', { exact: true }).locator('option')).toContainText(['Select an event', 'Summer Race']);
+  releaseEvents(); await finished; await page.unroute('**/api/timing/events?**');
+  await expect(page.getByLabel('Archived event', { exact: true }).locator('option')).toContainText(['Select an event', 'Summer Race']);
+  await expect(page.getByRole('button', { name: 'Import timing', exact: true })).toHaveCount(0);
+  await page.route('**/api/timing/events?**', route => route.abort('failed'));
+  await page.getByRole('button', { name: 'Search events', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('Unable to search archived events');
+  await page.unroute('**/api/timing/events?**');
+
 });
 
 test('shows a controlled browser rate-limit error in the timing flow', async ({ page }) => {
@@ -101,7 +127,11 @@ test('shows a controlled browser rate-limit error in the timing flow', async ({ 
   await page.goto(baseUrl);
   await page.getByRole('button', { name: 'Search tracks', exact: true }).click();
   await page.getByRole('button', { name: /RCRA & Club/ }).click();
-  await page.getByLabel('Archived event').selectOption({ label: 'Summer Race' });
+  await page.getByLabel('Search archived events').fill('missing'); await page.getByRole('button', { name: 'Search events', exact: true }).click();
+  await expect(page.getByText('No archived events match this search.', { exact: true })).toBeVisible();
+  await page.getByLabel('Search archived events').fill('sUmMeR'); await page.getByRole('button', { name: 'Search events', exact: true }).click();
+  await expect(page.getByLabel('Archived event', { exact: true }).locator('option')).toHaveCount(2);
+  await page.getByLabel('Archived event', { exact: true }).selectOption({ label: 'Summer Race' });
   await page.getByLabel('Heat or main event').selectOption({ label: 'Buggy Heat 3/7' });
   await expect(page.getByRole('alert')).toHaveText('Browser Run returned HTTP 429');
   await expect(page.getByLabel('Driver').locator('option')).toHaveCount(1);

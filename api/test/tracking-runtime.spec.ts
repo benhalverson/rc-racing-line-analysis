@@ -1,3 +1,5 @@
+import { eq } from 'drizzle-orm';
+import { analyses, correctionSets } from '../src/db/schema';
 import type { AlternativeWorkspace } from '../../shared/alternative-contract';
 import { alternativeRevisions } from '../src/db/schema';
 import type { RacingLineReview } from '../../shared/review-contract';
@@ -156,4 +158,67 @@ it('persists immutable hypotheses, rejects stale authority and concurrent revisi
   const stale = await (await app.request(url)).json() as AlternativeWorkspace;
   expect(stale.versions.every(v => !v.current)).toBe(true);
   expect(stale.versions[0].points).toEqual(input.points);
+});
+
+/** Checks local workspace reopening and optimistic immutable-version selection through HTTP workflow ports. */
+it('reopens saved metadata and reruns a prior correction without rewriting history or allowing stale selection', async () => {
+  const ctx = await fixture();
+  const app = createLocalApp(ctx.workflow, ctx.persistence, ctx.artifacts, ctx.videos, (id, signal) => executeLocalStabilization(id, ctx.workflow, ctx.persistence, ctx.artifacts, { signal, resolveVideoPath: async reference => ctx.videos.resolvePath(reference) }));
+  const list = await (await app.request('http://localhost/analyses')).json() as { analyses: Array<{ id: string; videoPath: string }> };
+  expect(list.analyses[0]).toMatchObject({ id: ctx.analysis.id, videoPath: ctx.analysis.videoPath });
+  await post(app, ctx.analysis.id, 'queue'); await post(app, ctx.analysis.id, 'start');
+  await expect.poll(async () => (await ctx.workflow.get(ctx.analysis.id)).state).toBe('needs_correction');
+  await post(app, ctx.analysis.id, 'calibration/start');
+  const payload = { raceStartSeconds: 0, markerReferenceSeconds: 0, carSelectionSeconds: 0, selectedCarBox: ctx.correction.selectedCarBox, markers: ctx.correction.markers.map((m, i) => i === 0 ? { ...m, source: 'manual', position: { x: .151, y: .15 } } : m) };
+  const newer = await (await post(app, ctx.analysis.id, 'correction-sets', payload)).json() as { id: string; version: number };
+  expect(newer.version).toBe(2);
+  const immutable = ctx.persistence.db.select().from(correctionSets).all().map(row => [row.id, row.payload]);
+  const current = await ctx.workflow.get(ctx.analysis.id);
+  const expected = { updatedAt: current.updatedAt, acceptedCorrectionSetId: current.acceptedCorrectionSetId };
+  const selections = await Promise.all([post(app, ctx.analysis.id, `correction-sets/${ctx.correction.id}/accept`, expected), post(app, ctx.analysis.id, `correction-sets/${newer.id}/accept`, expected)]);
+  expect(selections.map(r => r.status).sort()).toEqual([200, 400]);
+  expect((await ctx.workflow.get(ctx.analysis.id)).acceptedCorrectionSetId).toBe(ctx.correction.id);
+  expect(ctx.persistence.db.select().from(correctionSets).all().map(row => [row.id, row.payload])).toEqual(immutable);
+  expect((await post(app, ctx.analysis.id, `correction-sets/${newer.id}/accept`, expected)).status).toBe(400);
+  const selected = await ctx.workflow.get(ctx.analysis.id);
+  const authority = { updatedAt: selected.updatedAt, acceptedCorrectionSetId: selected.acceptedCorrectionSetId };
+  expect((await post(app, ctx.analysis.id, 'correction-sets/deleted-version/accept', authority)).status).toBe(400);
+  await post(app, ctx.analysis.id, 'queue'); await post(app, ctx.analysis.id, 'start');
+  expect((await post(app, ctx.analysis.id, `correction-sets/${newer.id}/accept`, authority)).status).toBe(400);
+  await expect.poll(async () => (await ctx.workflow.get(ctx.analysis.id)).state).toBe('needs_correction');
+  expect((await ctx.persistence.getRun(ctx.analysis.id))?.correctionSetId).toBe(ctx.correction.id);
+  expect(ctx.persistence.db.select().from(correctionSets).all().map(row => [row.id, row.payload])).toEqual(immutable);
+  await post(app, ctx.analysis.id, 'calibration/start');
+  const editing = await ctx.workflow.get(ctx.analysis.id);
+  const editingAuthority = { updatedAt: editing.updatedAt, acceptedCorrectionSetId: editing.acceptedCorrectionSetId };
+  const saveAgainstSelection = app.request(`http://localhost/analyses/${ctx.analysis.id}/correction-sets`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-analysis-updated-at': editing.updatedAt, 'x-accepted-correction-set-id': editing.acceptedCorrectionSetId ?? 'null' }, body: JSON.stringify(payload) });
+  const selectedAgainstSave = post(app, ctx.analysis.id, `correction-sets/${ctx.correction.id}/accept`, editingAuthority);
+  const competing = await Promise.all([saveAgainstSelection, selectedAgainstSave]);
+  expect(competing.filter(response => response.ok)).toHaveLength(1);
+  expect(competing.filter(response => response.status === 400)).toHaveLength(1);
+  expect((await ctx.workflow.get(ctx.analysis.id)).state).toBe('ready');
+  // Hold a lifecycle snapshot across a competing correction transaction.
+  const queueSnapshot = await ctx.workflow.get(ctx.analysis.id);
+  const otherCorrectionId = queueSnapshot.acceptedCorrectionSetId === newer.id ? ctx.correction.id : newer.id;
+  await ctx.workflow.selectCorrectionSet(ctx.analysis.id, otherCorrectionId, { updatedAt: queueSnapshot.updatedAt, acceptedCorrectionSetId: queueSnapshot.acceptedCorrectionSetId ?? null });
+  await expect(ctx.persistence.save({ ...queueSnapshot, state: 'queued' })).rejects.toThrow('authority changed');
+  expect(await ctx.workflow.get(ctx.analysis.id)).toMatchObject({ state: 'ready', acceptedCorrectionSetId: otherCorrectionId });
+  await ctx.workflow.queue(ctx.analysis.id);
+  expect(await ctx.workflow.get(ctx.analysis.id)).toMatchObject({ state: 'queued', acceptedCorrectionSetId: otherCorrectionId });
+  await expect(ctx.workflow.selectCorrectionSet(ctx.analysis.id, ctx.correction.id, { updatedAt: queueSnapshot.updatedAt, acceptedCorrectionSetId: queueSnapshot.acceptedCorrectionSetId ?? null })).rejects.toThrow('authority changed');
+  const foreign = await ctx.workflow.createDraft({ videoPath: ctx.analysis.videoPath, videoName: 'other.webm', videoStorage: 'local-disk', localVideoRef: ctx.analysis.localVideoRef });
+  const currentAgain = await ctx.workflow.get(ctx.analysis.id);
+  expect((await post(app, foreign.id, `correction-sets/${ctx.correction.id}/accept`, { updatedAt: foreign.updatedAt, acceptedCorrectionSetId: null })).status).toBe(400);
+  ctx.persistence.db.delete(analyses).where(eq(analyses.id, foreign.id)).run();
+  expect((await app.request(`http://localhost/analyses/${foreign.id}`)).status).toBe(404);
+  expect((await (await app.request('http://localhost/analyses')).json() as { analyses: Array<{ id: string }> }).analyses.some(row => row.id === foreign.id)).toBe(false);
+  const reopened = new LocalPersistence(join(ctx.root, 'metadata.sqlite'), resolve('api/drizzle/local-migrations'));
+  try {
+    const reopenedApp = createLocalApp(new AnalysisWorkflow(reopened), reopened, new LocalArtifactStore(ctx.artifacts.root, reopened), ctx.videos, async () => undefined);
+    expect((await (await reopenedApp.request('http://localhost/analyses')).json() as { analyses: unknown[] }).analyses).toContainEqual(currentAgain);
+  } finally { reopened.close(); }
+  await rm(ctx.videos.resolvePath(ctx.analysis.videoPath));
+  expect((await app.request(`http://localhost/analyses/${ctx.analysis.id}/video`)).status).toBe(404);
+  expect((await app.request(`http://localhost/analyses/${ctx.analysis.id}`)).status).toBe(200);
+
 });

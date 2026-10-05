@@ -44,8 +44,15 @@ export class AnalysisApi {
   }): Observable<Analysis> {
     return this.http.post<Analysis>('/api/analyses', input);
   }
+  /** Lists saved analyses from the verified local runtime. */
+  list() { return this.http.get<{ analyses: Analysis[] }>('/api/analyses'); }
+  /** Selects an immutable prior correction version under the currently displayed analysis authority. */
+  selectCorrectionSet(analysis: Analysis, correctionSetId: string) {
+    return this.http.post<Analysis>(`/api/analyses/${encodeURIComponent(analysis.id)}/correction-sets/${encodeURIComponent(correctionSetId)}/accept`, { updatedAt: analysis.updatedAt, acceptedCorrectionSetId: analysis.acceptedCorrectionSetId });
+  }
   startCalibration(id: string) { return this.http.post<Analysis>(`/api/analyses/${id}/calibration/start`, {}); }
-  saveCorrectionSet(id: string, payload: CorrectionSetPayload) { return this.http.post<CorrectionSet>(`/api/analyses/${id}/correction-sets`, payload); }
+  /** Saves new geometry with the editor's displayed optimistic analysis authority. */
+  saveCorrectionSet(id: string, payload: CorrectionSetPayload, analysis?: Analysis) { return this.http.post<CorrectionSet>(`/api/analyses/${id}/correction-sets`, payload, analysis ? { headers: { 'x-analysis-updated-at': analysis.updatedAt, 'x-accepted-correction-set-id': analysis.acceptedCorrectionSetId ?? 'null' } } : undefined); }
   correctionSets(id: string) { return this.http.get<{ correctionSets: CorrectionSet[] }>(`/api/analyses/${id}/correction-sets`); }
   /** Reads local persisted stabilization diagnostics for review. */
   artifacts(id: string) { return this.http.get<{ stabilization?: StabilizationReview }>(`/api/analyses/${id}/artifacts`); }

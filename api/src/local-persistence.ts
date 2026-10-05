@@ -1,6 +1,6 @@
 import type { TrackingRecovery } from '../../shared/tracking-contract';
 import Database from "better-sqlite3";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import { drizzle, type BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { mkdirSync } from "node:fs";
@@ -46,9 +46,51 @@ export class LocalPersistence implements AnalysisStore {
     return row ? { ...row, state: row.state as Analysis["state"], phase: row.phase as Analysis["phase"], videoStorage: row.videoStorage as Analysis["videoStorage"], localVideoRef: JSON.parse(row.localVideoRef) } : undefined;
   }
 
-  /** Persists workflow progress without replacing video metadata. */
+  /** Returns saved metadata without reading source videos or large observation files. */
+  async listAnalyses(): Promise<Analysis[]> {
+    const rows = this.db.select().from(analyses).orderBy(desc(analyses.updatedAt), analyses.id).all();
+    return rows.map(row => ({ ...row, state: row.state as Analysis['state'], phase: row.phase as Analysis['phase'], videoStorage: row.videoStorage as Analysis['videoStorage'], localVideoRef: JSON.parse(row.localVideoRef) }));
+  }
+
+  /** Atomically changes only acceptance and lifecycle metadata; prior correction payloads stay immutable. */
+  async selectCorrectionSet(analysisId: string, correctionSetId: string, expected: { updatedAt: string; acceptedCorrectionSetId: string | null }): Promise<Analysis> {
+    this.db.transaction(tx => {
+      const analysis = tx.select().from(analyses).where(eq(analyses.id, analysisId)).get();
+      if (!analysis) throw new Error('Analysis not found; reload saved analyses');
+      if (analysis.updatedAt !== expected.updatedAt || analysis.acceptedCorrectionSetId !== expected.acceptedCorrectionSetId) throw new Error('Analysis authority changed; reopen before selecting corrections');
+      if (!['ready', 'awaiting_calibration', 'completed', 'needs_correction', 'failed', 'cancelled'].includes(analysis.state)) throw new Error('Stop processing before selecting corrections');
+      const correction = tx.select().from(correctionSets).where(and(eq(correctionSets.id, correctionSetId), eq(correctionSets.analysisId, analysisId))).get();
+      if (!correction) throw new Error('Correction version not found for this analysis');
+      tx.update(correctionSets).set({ accepted: false }).where(eq(correctionSets.analysisId, analysisId)).run();
+      tx.update(correctionSets).set({ accepted: true }).where(eq(correctionSets.id, correctionSetId)).run();
+      const updatedAt = new Date(Math.max(Date.now(), Date.parse(analysis.updatedAt) + 1)).toISOString();
+      tx.update(analyses).set({ acceptedCorrectionSetId: correctionSetId, state: 'ready', phase: 'calibrating', progress: 0, checkpoint: 'correction-selected', error: null, updatedAt }).where(eq(analyses.id, analysisId)).run();
+    });
+    const result = await this.get(analysisId);
+    if (!result) throw new Error('Analysis not found');
+    return result;
+  }
+
+  /** Persists workflow progress only against its current snapshot; acceptance belongs to correction transactions. */
   async save(analysis: Analysis): Promise<void> {
-    this.db.update(analyses).set({ state: analysis.state, phase: analysis.phase, progress: analysis.progress, checkpoint: analysis.checkpoint, error: analysis.error, acceptedCorrectionSetId: analysis.acceptedCorrectionSetId, updatedAt: new Date().toISOString() }).where(eq(analyses.id, analysis.id)).run();
+    const updatedAt = new Date(Math.max(Date.now(), Date.parse(analysis.updatedAt) + 1)).toISOString();
+    const result = this.db.update(analyses).set({ state: analysis.state, phase: analysis.phase, progress: analysis.progress, checkpoint: analysis.checkpoint, error: analysis.error, updatedAt }).where(and(eq(analyses.id, analysis.id), eq(analyses.updatedAt, analysis.updatedAt), analysis.acceptedCorrectionSetId ? eq(analyses.acceptedCorrectionSetId, analysis.acceptedCorrectionSetId) : isNull(analyses.acceptedCorrectionSetId))).run();
+    if (result.changes !== 1) throw new Error('Analysis authority changed; reopen before changing lifecycle');
+  }
+
+  /** Appends and accepts one new immutable version under atomic lifecycle and optimistic authority checks. */
+  async appendAcceptedCorrectionSet(analysisId: string, payload: CorrectionPayload, expected: { updatedAt: string; acceptedCorrectionSetId: string | null }): Promise<CorrectionSet> {
+    return this.db.transaction(tx => {
+      const analysis = tx.select().from(analyses).where(eq(analyses.id, analysisId)).get();
+      if (analysis?.state !== 'awaiting_calibration' || analysis.updatedAt !== expected.updatedAt || analysis.acceptedCorrectionSetId !== expected.acceptedCorrectionSetId) throw new Error('Analysis authority changed; reopen before saving corrections');
+      const latest = tx.select().from(correctionSets).where(eq(correctionSets.analysisId, analysisId)).orderBy(desc(correctionSets.version)).get();
+      const now = new Date(Math.max(Date.now(), Date.parse(analysis.updatedAt) + 1)).toISOString();
+      const set: CorrectionSet = { ...payload, id: crypto.randomUUID(), analysisId, version: (latest?.version ?? 0) + 1, accepted: true, createdAt: now };
+      tx.update(correctionSets).set({ accepted: false }).where(eq(correctionSets.analysisId, analysisId)).run();
+      tx.insert(correctionSets).values({ id: set.id, analysisId, version: set.version, payload: JSON.stringify(payload), accepted: true, createdAt: now }).run();
+      tx.update(analyses).set({ state: 'ready', phase: 'calibrating', acceptedCorrectionSetId: set.id, updatedAt: now }).where(eq(analyses.id, analysisId)).run();
+      return set;
+    });
   }
 
   /** Appends a correction version; accepted payloads are never modified. */
