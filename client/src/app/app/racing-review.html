@@ -1,0 +1,74 @@
+<section aria-label="Timed racing-line review">
+  <h2>Timed racing-line review</h2>
+  <button type="button" (click)="reload()">Reload saved review</button>
+  @if (error()) { <p role="alert">{{ error() }}</p> }
+  <div class="views">
+    <div><h3>Original video · selected-car overlay</h3>
+      <div class="source">
+      <!-- biome-ignore lint/a11y/useMediaCaption: local race footage has no supplied caption track -->
+      <video #video controls preload="metadata" (loadedmetadata)="metadata()" (seeking)="seeking()" (seeked)="seeked()" (error)="videoError()"></video><div class="box" [attr.style]="boxStyle()" [class.uncertain]="observation()?.quality === 'suspect'"></div></div>
+      <p aria-live="polite" data-testid="review-cursor">Video {{ seconds().toFixed(3) }}s · frame {{ frame() ?? 'unavailable' }}</p>
+      <p data-testid="review-quality">{{ quality() }}</p>
+    </div>
+    <div><h3>Stabilized track view · reference pixels</h3><canvas #trackCanvas aria-label="Stabilized track view and observed line" (click)="mark($event)"></canvas>
+      <button type="button" (click)="marking.set(!marking()); gatePoint.set(null)" [disabled]="!review() || !synchronized() || busy() || drawingMode()">Mark start/finish endpoints</button>
+      @if (marking()) { <p>{{ gatePoint() ? 'Click the second endpoint.' : 'Click the first endpoint.' }}</p> }
+      <p>Cyan joins adjacent accepted observations only. Lost and rejected intervals have no connecting line.</p>
+    </div>
+  </div>
+  @if (review(); as current) {
+    <p>Review revision {{ current.revision.version }} · accepted calibration {{ current.revision.correctionSetId }} · run {{ current.revision.runId }} · tracker {{ current.tracking.providerVersion }}</p>
+    @if (current.timing; as timing) { <p>LiveRC: {{ timing.driverName }} · {{ timing.raceLabel }} · parser {{ timing.parserVersion }} · source hash {{ timing.sourceHash }} · imported {{ timing.fetchedAt }}</p> }
+    <button type="button" (click)="bindTiming()" [disabled]="!timingImportId || busy()">Bind selected cached timing</button>
+    <button type="button" (click)="add()" [disabled]="!synchronized() || busy()">Add missed crossing at cursor</button>
+    @if (!current.laps.length) { <p>No observed crossings. Mark a gate or manually add a crossing; LiveRC durations do not create video timestamps.</p> }
+    <table><thead><tr><th>Crossing source</th><th>LiveRC duration</th><th>Video segment</th><th>Evidence</th></tr></thead><tbody>
+      @for (lap of current.laps; track lap.crossing.id) {
+        <tr [class.selected]="selected() === lap.crossing.id" [class.invalid]="lap.evidenceQuality === 'invalid'"><td><button type="button" (click)="selectLap(lap.crossing.id)">Review crossing {{ $index + 1 }}</button> {{ lap.crossing.source }} {{ lap.crossing.seconds.toFixed(3) }}s</td><td>{{ lap.liveRcLap ? 'Lap ' + lap.liveRcLap.lapNumber + ' · ' + lap.liveRcLap.lapTimeText : 'Unassigned' }}</td><td>{{ lap.videoStartSeconds.toFixed(3) }}–{{ lap.videoEndSeconds.toFixed(3) }}s</td><td>{{ lap.evidenceQuality }} @for (warning of lap.warnings; track warning) { <p>{{ warning }}</p> }</td></tr>
+      }
+    </tbody></table>
+    @if (selected()) {
+      <label for="review-crossing-time">Correct crossing (video seconds)</label><input id="review-crossing-time" type="number" step="0.001" [value]="crossingTime()" (input)="crossingTime.set($any($event.target).value)" />
+      <button type="button" (click)="correct()" [disabled]="busy() || alternativeBusy()">Save crossing correction</button>
+      <button type="button" (click)="edit({ action: 'remove', id: selected() }); selected.set(null)" [disabled]="busy() || alternativeBusy()">Remove false crossing</button>
+      <label for="review-lap">Assign LiveRC lap</label><select id="review-lap" (change)="assign($event)" [disabled]="busy() || alternativeBusy()"><option value="">Unassigned</option>@for (lap of current.timing?.laps ?? []; track lap.lapNumber) { <option [value]="lap.lapNumber" [selected]="assignedLap() === lap.lapNumber">Lap {{ lap.lapNumber }} · {{ lap.lapTimeText }}</option> }</select>
+    }
+  } @else { <p>No published decoded evidence available.</p> }
+  <section aria-label="Hypothetical alternatives">
+    <h3>Named hypothetical alternatives · no lap-time predictions</h3>
+    <p>Draw on the stabilized track view above. Cyan is observed evidence; dashed purple shows the latest version of each hypothesis (or the explicitly selected version); orange is the unsaved draft. Comparisons cover the whole accepted decoded path after race start, not a predicted lap.</p>
+    <p>Metrics depend on polyline sampling. Corner entry/apex/exit are geometric bend proxies: adjacent vertices around turns of at least 15°, not validated physical corner boundaries. Smoothness is mean angular change between adjacent turns; lower means less change.</p>
+    @if (alternativeError()) { <p role="alert">{{ alternativeError() }}</p> }
+    @if (alternatives(); as workspace) {
+      <p>Track reference {{ workspace.authority.trackReferenceId }} · review revision {{ workspace.authority.reviewVersion }}</p>
+      <p data-testid="observed-geometry">Observed: {{ geometryLabel(workspace.observed) }}</p>
+      <p>{{ workspace.observed.uncertainty }}</p>
+      @for (warning of workspace.observed.warnings; track warning) { <p>{{ warning }}</p> }
+      @for (corner of workspace.observed.corners; track $index) { <p>Observed bend {{ $index + 1 }}: entry ({{ corner.entry.x.toFixed(1) }}, {{ corner.entry.y.toFixed(1) }}) · apex ({{ corner.apex.x.toFixed(1) }}, {{ corner.apex.y.toFixed(1) }}) · exit ({{ corner.exit.x.toFixed(1) }}, {{ corner.exit.y.toFixed(1) }}) reference px</p> }
+      <button type="button" (click)="newAlternative()" [disabled]="alternativeBusy() || busy() || !synchronized()">Draw new alternative</button>
+      @if (drawingMode()) {
+        <label for="alternative-name">Alternative name</label><input id="alternative-name" maxlength="100" [value]="alternativeName()" (input)="alternativeName.set($any($event.target).value)" [disabled]="alternativeBusy()" />
+        <p>{{ drawing().length }} points drawn · click the stabilized track view to add points.</p>
+        <button type="button" (click)="undoAlternative()" [disabled]="alternativeBusy() || !drawing().length">Undo alternative point</button>
+        <button type="button" (click)="clearAlternativePoints()" [disabled]="alternativeBusy()">Clear draft points</button>
+        <button type="button" (click)="saveAlternative()" [disabled]="alternativeBusy() || busy()">Save alternative version</button>
+        <button type="button" (click)="cancelAlternative()" [disabled]="alternativeBusy()">Cancel alternative draft</button>
+      }
+      @for (version of workspace.versions; track version.id) {
+        <article class="alternative-card" [attr.data-version-id]="version.id">
+          <h4>{{ version.name }} · v{{ version.version }} · Hypothetical</h4>
+          <p>{{ version.current ? 'Current accepted evidence' : 'Stale evidence: retained history; excluded from current overlay and comparison' }}</p>
+          @if (version.current) {
+            <button type="button" (click)="compareAlternative(version.id)">Compare {{ version.name }} v{{ version.version }} on track</button>
+            <p>{{ geometryLabel(version.geometry) }}</p><p>{{ version.geometry.uncertainty }}</p>
+            @for (corner of version.geometry.corners; track $index) { <p>Bend {{ $index + 1 }}: entry ({{ corner.entry.x.toFixed(1) }}, {{ corner.entry.y.toFixed(1) }}) · apex ({{ corner.apex.x.toFixed(1) }}, {{ corner.apex.y.toFixed(1) }}) · exit ({{ corner.exit.x.toFixed(1) }}, {{ corner.exit.y.toFixed(1) }}) reference px</p> }
+            @if (!version.geometry.corners.length) { <p>No geometric bends of at least 15°.</p> }
+          }
+          <p>Created {{ version.createdAt }} · run {{ version.runId }} · correction {{ version.correctionSetId }} · review {{ version.reviewVersion }} · reference {{ version.trackReferenceId }} · evidence {{ version.evidenceId }} · metrics {{ version.geometryVersion }}</p>
+          <button type="button" (click)="reviseAlternative(version)" [disabled]="!version.current || alternativeBusy() || busy() || !synchronized()">Revise {{ version.name }} v{{ version.version }}</button>
+        </article>
+      } @empty { <p>No saved hypothetical alternatives.</p> }
+    }
+  </section>
+  <p>Evidence warnings remain attached to each interval. Manual alignment is a review decision. No race-footage accuracy, speed, or predicted lap-time claim is made.</p>
+</section>

@@ -12,6 +12,7 @@ export type TimingEvent = {
 export type TimingRace = {
   id: string;
   label: string;
+  classLabel: string;
   url: string;
 };
 
