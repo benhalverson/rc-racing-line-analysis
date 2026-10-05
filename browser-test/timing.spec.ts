@@ -65,7 +65,18 @@ test.beforeAll(async () => {
 test.afterAll(async () => { await new Promise<void>((done) => server.close(() => done())); });
 
 test('selects the exact repeated heat and duplicate driver, confirms, imports and reopens offline', async ({ page }) => {
+  const externalRequests: string[] = [];
+  page.on('request', (request) => { if (!request.url().startsWith(baseUrl)) externalRequests.push(request.url()); });
   await page.goto(baseUrl);
+  const fontsLoaded = await page.evaluate(async () => {
+    const loaded = await Promise.all([
+      document.fonts.load('400 16px "DM Sans"'),
+      document.fonts.load('500 16px "Space Grotesk"'),
+    ]);
+    return loaded.every((faces) => faces.length > 0 && faces.every((face) => face.status === 'loaded'));
+  });
+  expect(fontsLoaded).toBe(true);
+  expect(externalRequests).toEqual([]);
   await page.getByRole('button', { name: 'Search tracks', exact: true }).click();
   await page.getByRole('button', { name: /RCRA & Club/ }).click();
   await page.getByLabel('Archived event').selectOption({ label: 'Summer Race' });
