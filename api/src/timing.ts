@@ -20,10 +20,36 @@ export class TimingUpstreamError extends Error {
 	constructor(status: number) { super(`LiveRC returned HTTP ${status}`); }
 }
 
+export class TimingGatewayError extends Error {
+	readonly status = 502;
+	constructor(message = "Unable to reach LiveRC", options?: ErrorOptions) {
+		super(message, options);
+	}
+}
+
+export class TimingParserError extends Error {
+  readonly status = 502;
+}
+
+const timingRetryDelayMs = 25;
+
 export async function fetchTimingPage(fetcher: TimingFetcher, url: string) {
-	const page = await fetcher(url);
-	if (page.status < 200 || page.status >= 300) throw new TimingUpstreamError(page.status);
-	return page;
+	for (let attempt = 0; attempt < 2; attempt += 1) {
+		let page: TimingPage;
+		try {
+			page = await fetcher(url);
+		} catch (error) {
+			if (attempt === 1) {
+				throw new TimingGatewayError("Unable to reach LiveRC", error instanceof Error ? { cause: error } : undefined);
+			}
+			await new Promise((resolve) => setTimeout(resolve, timingRetryDelayMs));
+			continue;
+		}
+		if (page.status >= 200 && page.status < 300) return page;
+		if (page.status < 500 || page.status >= 600 || attempt === 1) throw new TimingUpstreamError(page.status);
+		await new Promise((resolve) => setTimeout(resolve, timingRetryDelayMs));
+	}
+	throw new TimingGatewayError();
 }
 export type TimingStore = {
 	saveTimingImport(value: TimingImport): Promise<void>;
@@ -158,10 +184,13 @@ function text(value: string) {
 function links(html: string, baseUrl: string) {
 	return [
 		...html.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi),
-	].map((match) => ({
-		url: new URL(match[1], baseUrl).toString(),
-		label: text(match[2]),
-	}));
+	].flatMap((match) => {
+		try {
+			return [{ url: new URL(match[1], baseUrl).toString(), label: text(match[2]) }];
+		} catch {
+			return [];
+		}
+	});
 }
 
 export function parseTrackList(
@@ -169,17 +198,23 @@ export function parseTrackList(
 	sourceUrl = "https://live.liverc.com/",
 ) {
 	const source = new URL(sourceUrl);
-	return links(html, sourceUrl)
+	const tracks = links(html, sourceUrl)
 		.filter((link) => {
 			const url = new URL(link.url);
 			return (
 				url.hostname.endsWith(".liverc.com") && url.hostname !== source.hostname
 			);
 		})
-		.map((link) => {
-			const url = normalizeTrackUrl(link.url);
-			return { host: new URL(url).hostname, name: link.label, url };
+		.flatMap((link) => {
+			try {
+				const url = normalizeTrackUrl(link.url);
+				return [{ host: new URL(url).hostname, name: link.label, url }];
+			} catch {
+				return [];
+			}
 		});
+	if (tracks.length === 0) throw new TimingParserError("LiveRC track list format changed");
+	return tracks;
 }
 
 export function parseEvents(html: string, sourceUrl: string) {
@@ -200,6 +235,15 @@ export function parseEvents(html: string, sourceUrl: string) {
 	});
 }
 
+export function classLabelFromRaceLabel(raceLabel: string) {
+	const label = raceLabel.trim();
+	const withoutRoundSuffix = label.replace(
+		/\s*(?:\(\s*)?(?:(?:heat|round|qualifier)\s+\d+(?:\s*\/\s*\d+)?|[a-z]\d*(?:-?\s*)main|main)(?:\s*\))?$/i,
+		"",
+	).trim();
+	return withoutRoundSuffix || label;
+}
+
 export function parseRaces(html: string, sourceUrl: string) {
 	const source = new URL(sourceUrl);
 	const seen = new Set<string>();
@@ -213,7 +257,7 @@ export function parseRaces(html: string, sourceUrl: string) {
 			/^[1-9]\d*$/.test(id);
 		if (!valid || seen.has(id)) return [];
 		seen.add(id);
-		return [{ id, label: link.label, url: url.toString() }];
+		return [{ id, label: link.label, classLabel: classLabelFromRaceLabel(link.label), url: url.toString() }];
 	});
 }
 
@@ -388,7 +432,12 @@ export async function importTiming(
 		normalizeRaceResultUrl(page.url).toString() !== raceUrl.toString()
 	)
 		throw new Error("LiveRC returned a different race result URL");
-	const result = parseDriverResult(page.html, input.driverName, input.driverId);
+	let result: ReturnType<typeof parseDriverResult>;
+	try {
+		result = parseDriverResult(page.html, input.driverName, input.driverId);
+	} catch (error) {
+		throw new TimingParserError(error instanceof Error ? error.message : "LiveRC race result format changed");
+	}
 	const value: TimingImport = {
 		id: randomUUID(),
 		source: "liverc",

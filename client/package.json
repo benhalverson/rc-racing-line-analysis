@@ -29,6 +29,8 @@
     "@angular/forms": "22.0.6",
     "@angular/platform-browser": "22.0.6",
     "@angular/router": "22.0.6",
+    "@sqlite.org/sqlite-wasm": "3.53.0-build1",
+    "onnxruntime-web": "^1.27.0",
     "rxjs": "~7.8.0",
     "tslib": "^2.3.0"
   },
