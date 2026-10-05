@@ -1,3 +1,6 @@
+import type { RacingLineReview } from '../../shared/review-contract';
+import { LocalTimingStore } from '../src/local-timing-store';
+import { reviewRevisions } from '../src/db/schema';
 import { afterEach, describe, expect, it } from 'vitest';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -36,7 +39,8 @@ async function fixture() {
 }
 
 /** Performs a JSON request against the real local runtime adapter. */
-function post(app: ReturnType<typeof createLocalApp>, id: string, action: string, body?: unknown) {
+async function post(app: ReturnType<typeof createLocalApp>, id: string, action: string, body?: unknown) {
+  if (action === 'review' && body && typeof body === 'object') { const current = await (await app.request(`http://localhost/analyses/${id}/review`)).json() as RacingLineReview; body = { evidenceId: current.revision.evidenceId, ...body }; }
   return app.request(`http://localhost/analyses/${id}/${action}`, { method: 'POST', ...(body ? { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) } : {}) });
 }
 
@@ -59,6 +63,26 @@ describe('real decoded tracking through local runtime', () => {
     expect((await post(app, ctx.analysis.id, 'resume')).status).toBe(200);
     await expect.poll(async () => (await ctx.workflow.get(ctx.analysis.id)).state, { timeout: 10_000 }).toBe('needs_correction');
     const lost = await ctx.artifacts.readPublishedTracking(ctx.analysis.id); expect(lost?.observations[2]).toMatchObject({ quality: 'lost', box: null });
+    const reviewUrl = `http://localhost/analyses/${ctx.analysis.id}/review`;
+    const empty = await (await app.request(reviewUrl)).json() as RacingLineReview; expect(empty.laps).toEqual([]);
+    const gate = await (await post(app, ctx.analysis.id, 'review', { version: 0, runId: firstRun?.id, action: 'gate', line: { a: { x: 45, y: 40 }, b: { x: 45, y: 70 } } })).json() as RacingLineReview;
+    expect(gate.laps).toHaveLength(1); expect(gate.laps[0].crossing.seconds).toBeCloseTo(.05); expect(gate.laps[0].liveRcLap).toBeNull();
+    expect((await post(app, ctx.analysis.id, 'review', { version: 0, runId: firstRun?.id, action: 'add', seconds: .25 })).status).toBe(400);
+    const added = await (await post(app, ctx.analysis.id, 'review', { version: gate.revision.version, runId: firstRun?.id, action: 'add', seconds: .25 })).json() as RacingLineReview;
+    expect(added.laps[1].evidenceQuality).toBe('invalid');
+    const range = await app.request(`http://localhost/analyses/${ctx.analysis.id}/video`, { headers: { range: 'bytes=0-9' } }); expect(range.status).toBe(206); expect((await range.arrayBuffer()).byteLength).toBe(10);
+    const timing = { id: 'saved-timing', source: 'liverc' as const, trackHost: 'fixture.liverc.com', trackName: 'Fixture', trackUrl: 'https://fixture.liverc.com/', eventName: 'Fixture', eventUrl: 'https://fixture.liverc.com/event', raceId: '1', raceLabel: 'Main', roundLabel: '', classLabel: 'Buggy', raceUrl: 'https://fixture.liverc.com/race', driverName: 'Fixture driver', normalizedDriverName: 'fixture driver', driverId: null, fetchedAt: '2026-07-14T00:00:00.000Z', parserVersion: 'fixture-parser', sourceHash: 'fixture-hash', laps: [{ lapNumber: 7, lapTimeSeconds: 19.5, lapTimeText: '19.500', valid: true, statusText: null }] };
+    await new LocalTimingStore(ctx.persistence.db).saveTimingImport(timing);
+    const bound = await (await post(app, ctx.analysis.id, 'review', { version: added.revision.version, runId: firstRun?.id, action: 'timing', timingImportId: timing.id })).json() as RacingLineReview;
+    const aligned = await (await post(app, ctx.analysis.id, 'review', { version: bound.revision.version, runId: firstRun?.id, action: 'assign', id: gate.laps[0].crossing.id, lapNumber: 7 })).json() as RacingLineReview;
+    expect(aligned.laps[0]).toMatchObject({ videoEndSeconds: .05, liveRcLap: { lapNumber: 7, lapTimeSeconds: 19.5 }, evidenceQuality: 'uncertain' });
+    expect(aligned.timing?.sourceHash).toBe('fixture-hash');
+    expect((await post(app, ctx.analysis.id, 'review', { version: aligned.revision.version, runId: firstRun?.id, action: 'assign', id: added.laps[1].crossing.id, lapNumber: 7 })).status).toBe(400);
+    const corrected = await (await post(app, ctx.analysis.id, 'review', { version: aligned.revision.version, runId: firstRun?.id, action: 'correct', id: gate.laps[0].crossing.id, seconds: .06 })).json() as RacingLineReview;
+    expect(corrected.laps[0].crossing).toMatchObject({ source: 'manual', frameBefore: null, frameAfter: null });
+    expect(ctx.persistence.db.select().from(reviewRevisions).all()).toHaveLength(5);
+    expect((await (await app.request(reviewUrl)).json() as RacingLineReview).revision).toEqual(corrected.revision);
+
     expect((await app.request(`http://localhost/analyses/${ctx.analysis.id}/tracking/observations`, { method: 'POST' })).status).toBe(404);
     expect((await post(app, ctx.analysis.id, 'tracking/rebox', { frame: 3, box: { x: .46, y: .5, width: .08, height: .08 }, observationFilePath: '/arbitrary' })).status).toBe(400);
     expect((await post(app, ctx.analysis.id, 'tracking/rebox', { frame: 3, box: { x: .46, y: .5, width: .08, height: .08 } })).status).toBe(201);
@@ -66,10 +90,13 @@ describe('real decoded tracking through local runtime', () => {
     await expect.poll(async () => (await ctx.workflow.get(ctx.analysis.id)).state, { timeout: 10_000 }).toBe('completed');
     const recovered = await ctx.artifacts.readPublishedTracking(ctx.analysis.id); expect(recovered?.observations[2].quality).toBe('lost'); expect(recovered?.observations[3].quality).toBe('reacquired'); expect(recovered?.segments).toHaveLength(2);
     expect((await ctx.persistence.getRun(ctx.analysis.id))?.id).toBe(firstRun?.id);
+    const refreshed = await (await app.request(`http://localhost/analyses/${ctx.analysis.id}/review`)).json() as RacingLineReview;
+    expect(refreshed.laps).toEqual([]); expect(refreshed.revision.evidenceId).not.toBe(empty.revision.evidenceId);
     expect((await ctx.persistence.listArtifacts(ctx.analysis.id))).toHaveLength(4);
     expect((await post(app, ctx.analysis.id, 'queue')).status).toBe(200); expect((await post(app, ctx.analysis.id, 'start')).status).toBe(200);
     await expect.poll(async () => (await ctx.workflow.get(ctx.analysis.id)).state, { timeout: 10_000 }).toBe('completed');
     expect((await ctx.persistence.getRun(ctx.analysis.id))?.id).not.toBe(firstRun?.id);
+    expect((await (await app.request(`http://localhost/analyses/${ctx.analysis.id}/review`)).json() as RacingLineReview).revision.version).toBe(0);
     expect(await ctx.artifacts.readPublishedTracking(ctx.analysis.id)).toEqual(recovered);
     await ctx.workflow.startCalibration(ctx.analysis.id);
     await ctx.workflow.createAndAcceptCorrectionSet(ctx.analysis.id, { ...ctx.correction, selectedCarBox: { x: .42, y: .5, width: .08, height: .08 } });

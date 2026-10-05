@@ -1,0 +1,5 @@
+import type { TimingImport } from '../shared/timing-contract';
+/** Cached synthetic timing supports offline browser review; durations are unrelated to video fixture timestamps. */
+export const reviewTimingFixture: TimingImport = {
+  id: 'review-timing-fixture', source: 'liverc', trackHost: 'fixture.liverc.com', trackName: 'Synthetic review track', trackUrl: 'https://fixture.liverc.com/', eventName: 'Synthetic event', eventUrl: 'https://fixture.liverc.com/event', raceId: 'fixture-race', raceLabel: 'Synthetic Main', roundLabel: '', classLabel: 'Buggy', raceUrl: 'https://fixture.liverc.com/race', driverName: 'Review fixture driver', normalizedDriverName: 'review fixture driver', driverId: null, fetchedAt: '2026-07-14T00:00:00.000Z', parserVersion: 'fixture-only', sourceHash: 'synthetic-browser-fixture', laps: [{ lapNumber: 1, lapTimeSeconds: 19.5, lapTimeText: '19.500', valid: true, statusText: null }, { lapNumber: 2, lapTimeSeconds: 20, lapTimeText: '20.000', valid: false, statusText: 'invalid fixture' }],
+};

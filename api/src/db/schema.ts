@@ -67,3 +67,14 @@ export const trackingRecoveries = sqliteTable("tracking_recoveries", {
   box: text("box").notNull(),
   createdAt: text("created_at").notNull(),
 });
+
+/** Append-only review decisions remain scoped to one decoded run and accepted calibration. */
+export const reviewRevisions = sqliteTable('review_revisions', {
+  id: text('id').primaryKey(),
+  analysisId: text('analysis_id').notNull().references(() => analyses.id, { onDelete: 'cascade' }),
+  runId: text('run_id').notNull().references(() => processingRuns.id),
+  correctionSetId: text('correction_set_id').notNull().references(() => correctionSets.id),
+  version: integer('version').notNull(),
+  payload: text('payload').notNull(),
+  createdAt: text('created_at').notNull(),
+});

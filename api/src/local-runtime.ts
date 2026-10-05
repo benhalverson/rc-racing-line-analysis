@@ -1,3 +1,7 @@
+import { createReadStream } from 'node:fs';
+import { stat } from 'node:fs/promises';
+import { Readable } from 'node:stream';
+import { ReviewWorkflow } from './review-workflow';
 import { TrackingWorkflow } from "./tracking-workflow";
 import { z } from "zod";
 import { Hono } from "hono";
@@ -99,6 +103,44 @@ export function createLocalApp(workflow: AnalysisWorkflow, persistence: LocalPer
       } catch (error) { return c.json({ error: errorMessage(error) }, 400); }
     });
   }
+  const review = new ReviewWorkflow(persistence, artifacts);
+  app.get('/analyses/:id/review', async c => {
+    try { return c.json(await review.get(c.req.param('id'))); }
+    catch (error) { return c.json({ error: errorMessage(error) }, 404); }
+  });
+  app.post('/analyses/:id/review', async c => {
+    try {
+      const point = z.object({ x: z.number().finite(), y: z.number().finite() }).strict();
+      const base = { version: z.number().int().nonnegative(), evidenceId: z.string().min(1), runId: z.string().min(1) };
+      const input = z.discriminatedUnion('action', [
+        z.object({ ...base, action: z.literal('gate'), line: z.object({ a: point, b: point }).strict() }).strict(),
+        z.object({ ...base, action: z.literal('timing'), timingImportId: z.string().min(1) }).strict(),
+        z.object({ ...base, action: z.literal('add'), seconds: z.number().finite() }).strict(),
+        z.object({ ...base, action: z.literal('correct'), id: z.string().min(1), seconds: z.number().finite() }).strict(),
+        z.object({ ...base, action: z.literal('remove'), id: z.string().min(1) }).strict(),
+        z.object({ ...base, action: z.literal('assign'), id: z.string().min(1), lapNumber: z.number().int().positive().nullable() }).strict(),
+      ]).parse(await c.req.json());
+      return c.json(await review.edit(c.req.param('id'), input), 201);
+    } catch (error) { return c.json({ error: errorMessage(error) }, 400); }
+  });
+  app.get('/analyses/:id/video', async c => {
+    try {
+      const analysis = await workflow.get(c.req.param('id'));
+      if (analysis.videoStorage !== 'local-disk') throw new Error('Original local video is unavailable');
+      const path = videos.resolvePath(analysis.videoPath); const info = await stat(path);
+      const range = c.req.header('range');
+      let start = 0; let end = info.size - 1;
+      if (range) {
+        const match = /^bytes=(\d+)-(\d*)$/.exec(range);
+        if (!match) return c.body(null, 416, { 'Content-Range': `bytes */${info.size}` });
+        start = Number(match[1]); end = match[2] ? Math.min(Number(match[2]), end) : end;
+        if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start > end || start >= info.size) return c.body(null, 416, { 'Content-Range': `bytes */${info.size}` });
+      }
+      const headers: Record<string, string> = { 'Content-Type': analysis.localVideoRef?.mimeType || 'video/mp4', 'Accept-Ranges': 'bytes', 'Content-Length': String(end - start + 1), 'Cache-Control': 'no-store' };
+      if (range) headers['Content-Range'] = `bytes ${start}-${end}/${info.size}`;
+      return new Response(Readable.toWeb(createReadStream(path, { start, end })) as ReadableStream, { status: range ? 206 : 200, headers });
+    } catch (error) { return c.json({ error: errorMessage(error) }, 404); }
+  });
   app.get("/analyses/:id/tracking", async c => {
     try { return c.json({ tracking: await tracking.get(c.req.param("id")) }); }
     catch (error) { return c.json({ error: errorMessage(error) }, 404); }

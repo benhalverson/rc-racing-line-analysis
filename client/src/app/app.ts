@@ -1,3 +1,4 @@
+import { RacingReview } from './app/racing-review';
 import type { TrackingArtifacts } from '../../../shared/tracking-contract';
 import { DecimalPipe } from '@angular/common';
 import { Component, DestroyRef, inject, signal } from '@angular/core';
@@ -13,7 +14,7 @@ import { addMarker, calibrationReadiness, canStartCalibration as canStartCalibra
 import type { CorrectionSet, LocalVideoRef, NormalizedBox, NormalizedPoint } from '../../../shared/calibration-contract';
 @Component({
   selector: 'app-root',
-  imports: [DecimalPipe, CalibrationCanvas],
+  imports: [DecimalPipe, CalibrationCanvas, RacingReview],
   templateUrl: './app.html',
   styleUrl: './app.css',
 })

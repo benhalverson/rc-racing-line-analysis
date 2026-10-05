@@ -42,6 +42,9 @@
   </section>
   <section class="panel saved-imports"><div class="section-heading"><h2>Saved timing imports</h2><button type="button" (click)="loadSavedImports()">Load saved imports</button></div>@if (savedImports().length) { <div class="choice-list"> @for (saved of savedImports(); track saved.id) { <button type="button" (click)="reopenImport(saved.id)">{{ saved.driverName }} · {{ saved.raceLabel }} · {{ saved.classLabel }} <small>{{ saved.fetchedAt }} <span>Reopen</span></small></button> } </div> } @else { <p class="meta">Load persisted imports to reopen timing without contacting LiveRC.</p> }</section>
   @if (analysis(); as current) {
+    @if (localNode() && trackingReview()) {
+      <section class="panel"><app-racing-review [analysisId]="current.id" [timingImportId]="timingSelection().importedResult?.id"></app-racing-review></section>
+    }
     <section class="panel calibration-panel">
       <div class="section-heading"><div><p class="eyebrow">LOCAL CALIBRATION</p><h2>Set the race geometry</h2></div><span class="state">{{ current.state }}</span></div>
       <p class="meta">{{ localNode() ? 'Video and processing artifacts stay on this machine.' : 'Video stays in browser SQLite. Open the localhost Node runtime to process footage.' }}</p>
