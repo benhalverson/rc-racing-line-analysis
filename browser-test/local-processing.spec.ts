@@ -73,7 +73,7 @@ test('imports on localhost, preserves accepted marker corrections, and displays 
   await page.getByRole('button', { name: 'Start batch' }).click();
   await expect(page.getByText('7 of 10 frames passed geometry checks.')).toBeVisible();
   await expect(page.getByText('Frames 7–9: insufficient-markers')).toBeVisible();
-  await expect(page.getByText('Stabilization needs corrected markers. Downstream analysis is blocked.')).toBeVisible();
+  await expect(page.getByText('Review excluded stabilization or tracking regions before continuing.')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Save correction set' })).toBeDisabled();
   await page.getByRole('button', { name: 'Enable calibration' }).click();
   await expect(page.getByRole('region', { name: 'Stabilization review' })).toHaveCount(0);

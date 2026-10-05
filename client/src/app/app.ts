@@ -1,3 +1,4 @@
+import type { TrackingArtifacts } from '../../../shared/tracking-contract';
 import { DecimalPipe } from '@angular/common';
 import { Component, DestroyRef, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -21,6 +22,9 @@ export class App {
   private readonly timingApi = inject(TimingApi);
   private readonly videoStore = inject(BrowserSqliteStore);
   private readonly runtime = inject(LocalRuntime);
+  readonly trackingReview = signal<TrackingArtifacts | undefined>(undefined);
+  readonly recoveryBox = signal<NormalizedBox | null>(null);
+  readonly recoveryError = signal('');
   readonly localNode = signal(false);
   readonly stabilizationReview = signal<StabilizationReview | undefined>(undefined);
   readonly selectedVideo = signal<Blob | undefined>(undefined);
@@ -252,6 +256,32 @@ export class App {
   private clearStabilizationReview() {
     this.reviewGeneration += 1;
     this.stabilizationReview.set(undefined);
+    this.trackingReview.set(undefined);
+    this.recoveryBox.set(null);
+    this.recoveryError.set('');
+  }
+
+  /** Groups retained uncertainty for review without filling any missing car path. */
+  trackingIntervals() {
+    const regions: Array<{ startFrame: number; endFrame: number; quality: string }> = [];
+    for (const item of this.trackingReview()?.observations ?? []) {
+      if (item.quality !== 'lost' && item.quality !== 'suspect') continue;
+      const last = regions.at(-1);
+      if (last && last.quality === item.quality && last.endFrame + 1 === item.frame) last.endFrame = item.frame;
+      else regions.push({ startFrame: item.frame, endFrame: item.frame, quality: item.quality });
+    }
+    return regions;
+  }
+  /** Binds the drawn confirmation to the nearest actual decoded lost frame at the video cursor. */
+  confirmRecovery(seconds: number) {
+    const current = this.analysis(); const box = this.recoveryBox(); const output = this.trackingReview();
+    if (!current || !box || !output) return;
+    const observation = output.observations.reduce((nearest, item) => Math.abs(item.seconds - seconds) < Math.abs(nearest.seconds - seconds) ? item : nearest, output.observations[0]);
+    if (observation?.quality !== 'lost') { this.recoveryError.set('Seek to a lost source frame before confirming identity.'); return; }
+    this.api.rebox(current.id, observation.frame, box).subscribe({
+      next: () => { this.recoveryError.set(''); this.clearStabilizationReview(); this.resume(); },
+      error: (error) => this.recoveryError.set(timingError(error, 'Unable to confirm this recovery box.')),
+    });
   }
   /** Observes persisted progress and loads local quality diagnostics after the run. */
   private connectToUpdates(id: string) {
@@ -263,6 +293,7 @@ export class App {
         this.analysis.set(message.analysis);
         if (this.localNode() && ['completed', 'needs_correction', 'failed', 'cancelled'].includes(message.analysis.state)) {
           const generation = this.reviewGeneration;
+          this.api.tracking(id).subscribe({ next: value => { if (this.analysis()?.id === id && generation === this.reviewGeneration) this.trackingReview.set(value.tracking); }, error: () => this.message.set('Unable to load tracking diagnostics.') });
           this.api.artifacts(id).subscribe({ next: (value) => { if (this.analysis()?.id === id && generation === this.reviewGeneration) this.stabilizationReview.set(value.stabilization); }, error: () => this.message.set('Unable to load stabilization diagnostics.') });
         }
       } });

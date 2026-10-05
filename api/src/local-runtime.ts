@@ -1,3 +1,5 @@
+import { TrackingWorkflow } from "./tracking-workflow";
+import { z } from "zod";
 import { Hono } from "hono";
 import type { AnalysisRuntime, WorkflowInstanceHandle, TimingRuntime } from "./app";
 import { createApp } from "./app";
@@ -11,6 +13,7 @@ type Execution = { controller: AbortController; promise: Promise<void> };
 
 /** Composes the existing workflow routes with local video/artifact transport and execution. */
 export function createLocalApp(workflow: AnalysisWorkflow, persistence: LocalPersistence, artifacts: LocalArtifactStore, videos: LocalVideoStore, execute: (id: string, signal: AbortSignal) => Promise<void>, timing?: TimingRuntime) {
+  const tracking = new TrackingWorkflow(workflow, persistence, artifacts);
   const executions = new Map<string, Execution>();
   /** Starts at most one local worker and waits for an interrupted predecessor to exit. */
   async function launch(id: string): Promise<void> {
@@ -30,8 +33,11 @@ export function createLocalApp(workflow: AnalysisWorkflow, persistence: LocalPer
     return {
       pause: async () => { const active = executions.get(id); active?.controller.abort(); await active?.promise; },
       resume: async () => { await launch(id); },
-      restart: async () => { await launch(id); },
+      restart: async () => { const active = executions.get(id); active?.controller.abort(); await active?.promise; await launch(id); },
       status: async () => {
+        const analysis = await workflow.get(id);
+        if (analysis.state === "completed" || analysis.state === "needs_correction") return { status: "complete" };
+        if (analysis.state === "failed") return { status: "errored" };
         const execution = executions.get(id);
         if (execution) return { status: execution.controller.signal.aborted ? "waitingForPause" : "running" };
         const run = await persistence.getRun(id);
@@ -75,6 +81,33 @@ export function createLocalApp(workflow: AnalysisWorkflow, persistence: LocalPer
       }
       return c.json({ run: await persistence.getRun(id), artifacts: await persistence.listArtifacts(id), stabilization: output ? { totalFrames: transforms.length, usableFrames: transforms.filter((item) => item.quality.usable).length, unusableRegions } : undefined });
     } catch (error) { return c.json({ error: errorMessage(error) }, 404); }
+  });
+
+
+  for (const action of ["start", "resume"] as const) {
+    app.post(`/analyses/:id/${action}`, async c => {
+      const id = c.req.param("id");
+      try {
+        const prior = await workflow.get(id);
+        if (executions.get(id)?.controller.signal.aborted) throw new Error("workflow instance cannot resume from waitingForPause");
+        if (prior.state !== "running") {
+          const active = executions.get(id); active?.controller.abort(); await active?.promise;
+        }
+        if (action === "start") await workflow.start(id); else await workflow.resume(id);
+        await launch(id);
+        return c.json(await workflow.get(id));
+      } catch (error) { return c.json({ error: errorMessage(error) }, 400); }
+    });
+  }
+  app.get("/analyses/:id/tracking", async c => {
+    try { return c.json({ tracking: await tracking.get(c.req.param("id")) }); }
+    catch (error) { return c.json({ error: errorMessage(error) }, 404); }
+  });
+  app.post("/analyses/:id/tracking/rebox", async c => {
+    try {
+      const input = z.object({ frame: z.number().int().nonnegative(), box: z.object({ x: z.number(), y: z.number(), width: z.number(), height: z.number() }).strict() }).strict().parse(await c.req.json());
+      return c.json(await tracking.rebox(c.req.param("id"), input.frame, input.box), 201);
+    } catch (error) { return c.json({ error: errorMessage(error) }, 400); }
   });
   app.post("/analyses", async (c, next) => {
     try {

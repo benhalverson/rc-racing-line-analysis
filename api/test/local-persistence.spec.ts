@@ -113,6 +113,10 @@ describe("local production persistence", () => {
     const frames = [0, 3].map((shift, index) => {
       const rgb = Buffer.alloc(100 * 100 * 3);
       for (const marker of markerLoss && index === 1 ? [] : correction.markers) for (let y = -2; y <= 2; y++) for (let x = -2; x <= 2; x++) rgb[((marker.position.y * 100 + y) * 100 + marker.position.x * 100 + shift + x) * 3 + 1] = 255;
+      // The selected-car region contains actual textured appearance, not a blank patch.
+      for (let y = 40; y < 50; y++) for (let x = 40 + shift; x < 50 + shift; x++) {
+        const pixel = (y * 100 + x) * 3; rgb[pixel] = 180; rgb[pixel + 1] = (x - shift + y) % 2 ? 40 : 90; rgb[pixel + 2] = 60;
+      }
       return rgb;
     });
     const raw = join(root, "fixture.rgb"); const video = join(root, "fixture.mkv");
@@ -126,14 +130,14 @@ describe("local production persistence", () => {
     expect((await app.request(`http://localhost/analyses/${draft.id}/correction-sets`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(correction) })).status).toBe(201);
     expect((await app.request(`http://localhost/analyses/${draft.id}/queue`, { method: "POST" })).status).toBe(200);
     expect((await app.request(`http://localhost/analyses/${draft.id}/start`, { method: "POST" })).status).toBe(200);
-    await expect.poll(async () => ((await (await app.request(`http://localhost/analyses/${draft.id}`)).json()) as { state: string }).state).toBe(markerLoss ? "needs_correction" : "completed");
+    await expect.poll(async () => ((await (await app.request(`http://localhost/analyses/${draft.id}`)).json()) as { state: string }).state, { timeout: 10_000 }).toBe(markerLoss ? "needs_correction" : "completed");
     const diagnostic = await (await app.request(`http://localhost/analyses/${draft.id}/artifacts`)).json() as { stabilization: unknown; run: unknown; artifacts: unknown[] };
     expect(diagnostic.stabilization).toEqual({ totalFrames: 2, usableFrames: markerLoss ? 1 : 2, unusableRegions: markerLoss ? [{ startFrame: 1, endFrame: 1, reason: "stabilization quality rejected" }] : [] });
     expect(diagnostic.run).toMatchObject({ status: markerLoss ? "needs_correction" : "completed", frame: 1 });
     const output = await artifacts.readPublished(draft.id);
     if (markerLoss) expect(output?.transforms[1].quality.usable).toBe(false);
     else expect(output?.transforms[1].matrix[2]).toBeCloseTo(-3);
-    expect(diagnostic.artifacts).toHaveLength(3);
+    expect(diagnostic.artifacts).toHaveLength(4);
   });
 
   it("rejects source replacement and corrupt checkpoints, and hides historical output during a fresh run", async () => {

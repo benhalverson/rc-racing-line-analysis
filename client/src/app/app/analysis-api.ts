@@ -1,3 +1,5 @@
+import type { TrackingArtifacts } from '../../../../shared/tracking-contract';
+import type { NormalizedBox } from '../../../../shared/calibration-contract';
 import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import type { StabilizationReview } from './local-runtime';
@@ -47,6 +49,10 @@ export class AnalysisApi {
   correctionSets(id: string) { return this.http.get<{ correctionSets: CorrectionSet[] }>(`/api/analyses/${id}/correction-sets`); }
   /** Reads local persisted stabilization diagnostics for review. */
   artifacts(id: string) { return this.http.get<{ stabilization?: StabilizationReview }>(`/api/analyses/${id}/artifacts`); }
+  /** Reads decoded observations from the accepted current local run. */
+  tracking(id: string) { return this.http.get<{ tracking?: TrackingArtifacts }>(`/api/analyses/${id}/tracking`); }
+  /** Confirms identity with a drawn box; timestamps and file paths come from local evidence. */
+  rebox(id: string, frame: number, box: NormalizedBox) { return this.http.post(`/api/analyses/${id}/tracking/rebox`, { frame, box }); }
   get(id: string): Observable<Analysis> {
     return this.http.get<Analysis>(`/api/analyses/${id}`);
   }

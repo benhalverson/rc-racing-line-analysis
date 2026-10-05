@@ -11,10 +11,15 @@ export default defineConfig({
       executablePath: process.env['PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH'] ?? process.env['PLAYWRIGHT_CHROMIUM_EXECUTABLE'],
     },
   },
-  webServer: {
+  webServer: [{
+    command: 'api/node_modules/.bin/tsx browser-test/local-server.ts',
+    url: 'http://127.0.0.1:8787/health',
+    reuseExistingServer: false,
+    timeout: 30_000,
+  }, {
     command: 'cd client && node_modules/.bin/ng serve --host 127.0.0.1',
     url: 'http://127.0.0.1:4200',
     reuseExistingServer: !process.env['CI'],
     timeout: 120_000,
-  },
+  }],
 });

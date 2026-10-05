@@ -41,6 +41,7 @@ export const processingRuns = sqliteTable("processing_runs", {
   providerVersion: text("provider_version").notNull(),
   status: text("status").notNull(),
   frame: integer("frame").notNull().default(-1),
+  trackingFrame: integer("tracking_frame").notNull().default(-1),
   error: text("error"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
@@ -53,5 +54,16 @@ export const localArtifacts = sqliteTable("local_artifacts", {
   correctionSetId: text("correction_set_id").notNull().references(() => correctionSets.id),
   kind: text("kind").notNull(),
   path: text("path").notNull(),
+  createdAt: text("created_at").notNull(),
+});
+
+/** Append-only manual identity confirmations scoped to accepted calibration authority. */
+export const trackingRecoveries = sqliteTable("tracking_recoveries", {
+  id: text("id").primaryKey(),
+  analysisId: text("analysis_id").notNull().references(() => analyses.id, { onDelete: "cascade" }),
+  correctionSetId: text("correction_set_id").notNull().references(() => correctionSets.id),
+  frame: integer("frame").notNull(),
+  seconds: real("seconds").notNull(),
+  box: text("box").notNull(),
   createdAt: text("created_at").notNull(),
 });

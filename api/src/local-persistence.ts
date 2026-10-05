@@ -1,3 +1,4 @@
+import type { TrackingRecovery } from '../../shared/tracking-contract';
 import Database from "better-sqlite3";
 import { and, desc, eq } from "drizzle-orm";
 import { drizzle, type BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
@@ -5,7 +6,7 @@ import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import type { CorrectionSet } from "../../shared/calibration-contract";
-import { analyses, correctionSets, localArtifacts, processingRuns } from "./db/schema";
+import { analyses, correctionSets, localArtifacts, processingRuns, trackingRecoveries } from "./db/schema";
 import type { Analysis, AnalysisStore, CreateAnalysisInput } from "./domain";
 
 export type ProcessingRun = typeof processingRuns.$inferSelect & { status: "running" | "cancelled" | "failed" | "completed" | "needs_correction" };
@@ -83,18 +84,18 @@ export class LocalPersistence implements AnalysisStore {
   /** Resumes a matching interrupted run or appends a new reproducible execution. */
   async startRun(analysisId: string, correctionSetId: string, providerVersion: string, fresh = false): Promise<ProcessingRun> {
     const prior = await this.getRun(analysisId);
-    if (!fresh && prior && prior.correctionSetId === correctionSetId && prior.providerVersion === providerVersion && ["running", "cancelled", "failed"].includes(prior.status)) {
+    if (!fresh && prior && prior.correctionSetId === correctionSetId && prior.providerVersion === providerVersion && ["running", "cancelled", "failed", "needs_correction"].includes(prior.status)) {
       await this.updateRun(prior.id, { status: "running", error: null });
       return { ...prior, status: "running", error: null };
     }
     const now = new Date(Math.max(Date.now(), prior ? Date.parse(prior.createdAt) + 1 : 0)).toISOString();
-    const run: ProcessingRun = { id: crypto.randomUUID(), analysisId, correctionSetId, providerVersion, status: "running", frame: -1, error: null, createdAt: now, updatedAt: now };
+    const run: ProcessingRun = { id: crypto.randomUUID(), analysisId, correctionSetId, providerVersion, status: "running", frame: -1, trackingFrame: -1, error: null, createdAt: now, updatedAt: now };
     this.db.insert(processingRuns).values(run).run();
     return run;
   }
 
   /** Records durable checkpoint or terminal state without discarding prior frame progress. */
-  async updateRun(id: string, fields: Partial<Pick<ProcessingRun, "status" | "frame" | "error">>): Promise<void> {
+  async updateRun(id: string, fields: Partial<Pick<ProcessingRun, "status" | "frame" | "trackingFrame" | "error">>): Promise<void> {
     this.db.update(processingRuns).set({ ...fields, updatedAt: new Date().toISOString() }).where(eq(processingRuns.id, id)).run();
   }
 
@@ -110,4 +111,16 @@ export class LocalPersistence implements AnalysisStore {
       for (const value of values) tx.insert(localArtifacts).values({ ...value, id: crypto.randomUUID(), analysisId: run.analysisId, runId: run.id, correctionSetId: run.correctionSetId, createdAt: new Date().toISOString() }).run();
     });
   }
+  /** Lists append-only identity confirmations under one calibration authority. */
+  async listTrackingRecoveries(analysisId: string, correctionSetId: string): Promise<TrackingRecovery[]> {
+    return this.db.select().from(trackingRecoveries).where(and(eq(trackingRecoveries.analysisId, analysisId), eq(trackingRecoveries.correctionSetId, correctionSetId))).all().map(row => ({ ...row, box: JSON.parse(row.box) }));
+  }
+
+  /** Appends a manual identity confirmation without changing accepted calibration. */
+  async addTrackingRecovery(input: Omit<TrackingRecovery, "id" | "createdAt">): Promise<TrackingRecovery> {
+    const recovery = { ...input, id: crypto.randomUUID(), createdAt: new Date().toISOString() };
+    this.db.insert(trackingRecoveries).values({ ...recovery, box: JSON.stringify(recovery.box) }).run();
+    return recovery;
+  }
+
 }

@@ -7,7 +7,7 @@ const transitions: Record<Analysis["state"], Analysis["state"][]> = {
   ready: ["queued"],
   queued: ["running", "cancelled"],
   running: ["completed", "needs_correction", "failed", "cancelled"],
-  needs_correction: ["awaiting_calibration", "queued"],
+  needs_correction: ["awaiting_calibration", "queued", "running"],
   completed: ["awaiting_calibration", "queued"],
   failed: ["awaiting_calibration", "queued", "running"],
   cancelled: ["awaiting_calibration", "queued", "running"],

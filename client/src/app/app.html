@@ -67,6 +67,21 @@
         }
       </section>
     }
+
+    @if (trackingReview(); as tracking) {
+      <section class="panel" aria-label="Selected car tracking review">
+        <h2>Selected car tracking</h2>
+        <p>{{ tracking.observations.length }} decoded observations · {{ tracking.segments.length }} confirmed segment(s)</p>
+        <p>Uncertain observations and unusable transforms are excluded from the track-relative path. Lost intervals are retained.</p>
+        <ul>@for (interval of trackingIntervals(); track $index) { <li>{{ interval.quality }}: frames {{ interval.startFrame }}–{{ interval.endFrame }}</li> }</ul>
+        @if (current.state === 'needs_correction' && trackingIntervals().length) {
+          <p>Seek to a frame after loss, draw a box around the same car, then confirm its identity.</p>
+          <app-calibration-canvas #recoveryVideo [videoBlob]="selectedVideo()" [videoRef]="localVideoRef()" [selectedCarBox]="recoveryBox()" mode="car" (carBoxSelected)="recoveryBox.set($event)"></app-calibration-canvas>
+          <button type="button" (click)="confirmRecovery(recoveryVideo.currentTime())" [disabled]="!recoveryBox() || !recoveryVideo.isLoaded()">Confirm identity and resume tracking</button>
+          @if (recoveryError()) { <p role="alert">{{ recoveryError() }}</p> }
+        }
+      </section>
+    }
     <section class="panel status">
       <div>
         <p class="eyebrow">CURRENT ANALYSIS</p>
@@ -80,7 +95,7 @@
         {{ current.checkpoint || 'none' }} · Connection: {{ connectionState() }}
       </p>
       @if (current.error) { <p class="error" role="alert">{{ current.error }}</p> }
-      @if (current.state === 'needs_correction') { <p role="alert">Stabilization needs corrected markers. Downstream analysis is blocked.</p> }
+      @if (current.state === 'needs_correction') { <p role="alert">Review excluded stabilization or tracking regions before continuing.</p> }
       <div class="actions">
         @if (
           current.state === 'ready' || current.state === 'cancelled' || current.state === 'failed'
