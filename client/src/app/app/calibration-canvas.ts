@@ -14,6 +14,7 @@ export type CalibrationMode = 'idle' | 'marker' | 'car';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class CalibrationCanvas implements AfterViewInit, OnChanges, OnDestroy {
+  @Input() videoUrl: string | undefined;
   @Input() videoBlob: Blob | undefined;
   @Input() videoRef: LocalVideoRef | undefined;
   @Input() markers: CorrectionMarker[] = [];
@@ -48,12 +49,16 @@ export class CalibrationCanvas implements AfterViewInit, OnChanges, OnDestroy {
 
   /** Loads the selected local blob or persisted browser reference once the view exists. */
   ngAfterViewInit() {
-    if (this.videoBlob) this.loadBlob(this.videoBlob);
+    if (this.videoUrl) this.loadUrl(this.videoUrl);
+    else if (this.videoBlob) this.loadBlob(this.videoBlob);
     else if (this.videoRef) void this.loadStoredVideo(this.videoRef);
   }
 
   /** Updates local video ownership and geometry overlays when inputs change. */
   ngOnChanges(changes: SimpleChanges) {
+    // biome-ignore lint/complexity/useLiteralKeys: Angular SimpleChanges uses an index signature.
+    if (changes['videoUrl'] && this.videoUrl) this.loadUrl(this.videoUrl);
+    if (this.videoUrl) { this.drawOverlay(); return; }
     // biome-ignore lint/complexity/useLiteralKeys: Angular SimpleChanges uses an index signature.
     const blobChange = changes['videoBlob'];
     if (blobChange && this.videoBlob) this.loadBlob(this.videoBlob);
@@ -69,6 +74,14 @@ export class CalibrationCanvas implements AfterViewInit, OnChanges, OnDestroy {
     this.loadGeneration += 1;
     this.revokeObjectUrl();
   }
+
+  /** Reopens a local HTTP source without requiring its bytes in browser OPFS or memory. */
+  private loadUrl(url: string) {
+    this.loadGeneration++; this.revokeObjectUrl(); this.error.set(''); this.isLoaded.set(false);
+    this.videoElement.nativeElement.src = url; this.videoElement.nativeElement.load();
+  }
+  /** Reports missing or undecodable local source footage after a saved workspace is reopened. */
+  onVideoError() { this.isLoaded.set(false); this.error.set('Original local video is unavailable or cannot be decoded. Restore the source file before calibration.'); }
 
   /** Displays the original selected file without reading Node storage through OPFS. */
   private loadBlob(blob: Blob) {

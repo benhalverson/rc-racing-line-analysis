@@ -26,6 +26,14 @@ describe("DOM timing public behavior", () => {
     expect(await response.json()).toMatchObject({ races: [{ id: "44", label: "Buggy Heat 2/7", classLabel: "Buggy" }, { id: "45", label: "Buggy Heat 3/7", classLabel: "Buggy" }] });
   });
 
+  it('filters archived event names case-insensitively with unicode normalization and preserves exact URLs', async () => {
+    const { app } = setup(fixture('dom-links'));
+    const base = `/timing/events?trackUrl=${encodeURIComponent(input.trackUrl)}`;
+    expect(await (await app.request(`${base}&query=${encodeURIComponent('ＳＵＭＭＥＲ')}`)).json()).toEqual({ events: [{ name: 'Summer Race', url: input.eventUrl }] });
+    expect(await (await app.request(`${base}&query=not-a-match`)).json()).toEqual({ events: [] });
+    expect(await (await app.request(`${base}&query=%20`)).json()).toEqual({ events: [{ name: 'Summer Race', url: input.eventUrl }] });
+  });
+
   it("imports literal telemetry and preserves provenance/offline retrieval without executing scripts", async () => {
     const browser = vi.fn();
     const { app, fetch, post } = setup(fixture("dom-race"), browser);

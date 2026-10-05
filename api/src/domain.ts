@@ -32,6 +32,9 @@ export interface Analysis {
 
 export interface AnalysisStore {
   createDraft(input: CreateAnalysisInput): Promise<Analysis>;
+  appendAcceptedCorrectionSet?(analysisId: string, payload: Omit<CorrectionSet, 'id' | 'analysisId' | 'version' | 'accepted' | 'createdAt'>, expected: { updatedAt: string; acceptedCorrectionSetId: string | null }): Promise<CorrectionSet>;
+  listAnalyses?(): Promise<Analysis[]>;
+  selectCorrectionSet?(analysisId: string, correctionSetId: string, expected: { updatedAt: string; acceptedCorrectionSetId: string | null }): Promise<Analysis>;
   get(id: string): Promise<Analysis | undefined>;
   save(analysis: Analysis): Promise<void>;
   createCorrectionSet(analysisId: string, payload: Omit<CorrectionSet, "id" | "analysisId" | "version" | "accepted" | "createdAt">): Promise<CorrectionSet>;
