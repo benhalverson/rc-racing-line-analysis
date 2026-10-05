@@ -1,10 +1,11 @@
+import { fetchStructuredTimingPage } from "./timing-browser";
 import { Hono } from "hono";
 import { z } from "zod";
 import { isNormalizedBox, isNormalizedPoint, type CorrectionSet } from "../../shared/calibration-contract";
 import { errorMessage } from "./errors";
 import type { AnalysisProgressRoom } from "./progress-room";
 import type { AnalysisWorkflow } from "./workflow";
-import { fetchTimingPage, importTiming, normalizeLiveRcUrl, normalizeRaceResultUrl, normalizeTrackUrl, parseDrivers, parseEvents, parseRaces, parseTrackList, TimingGatewayError, TimingParserError, TimingUpstreamError, type TimingFetcher, type TimingStore } from "./timing";
+import { importTiming, normalizeLiveRcUrl, normalizeRaceResultUrl, normalizeTrackUrl, parseDrivers, parseEvents, parseRaces, parseTrackList, TimingGatewayError, TimingParserError, TimingUpstreamError, type TimingFetcher, type TimingStore } from "./timing";
 
 export interface AnalysisRuntime {
   workflow: {
@@ -99,7 +100,7 @@ const timingImportRequestSchema = z.object({
   driverId: timingImportId,
 }).strict();
 
-export type TimingRuntime = { fetch: TimingFetcher; store: TimingStore };
+export type TimingRuntime = { fetch: TimingFetcher; browser?: TimingFetcher; store: TimingStore };
 
 export function createApp(workflow: AnalysisWorkflow, runtime?: AnalysisRuntime, timing?: TimingRuntime) {
   const app = new Hono();
@@ -107,7 +108,7 @@ export function createApp(workflow: AnalysisWorkflow, runtime?: AnalysisRuntime,
   app.get("/timing/tracks", async (c) => {
     if (!timing) return c.json({ error: "timing import is unavailable" }, 503);
     try {
-      const page = await fetchTimingPage(timing.fetch, "https://live.liverc.com/");
+      const page = await fetchStructuredTimingPage(timing.fetch, "https://live.liverc.com/", "tracks", timing.browser);
       const query = searchKey(c.req.query("query") ?? "");
       const tracks = parseTrackList(page.html, page.url).filter((track) => !query || searchKey(`${track.name} ${track.host}`).includes(query));
       return c.json({ tracks });
@@ -120,7 +121,7 @@ export function createApp(workflow: AnalysisWorkflow, runtime?: AnalysisRuntime,
     try {
       const trackUrl = normalizeTrackUrl(requiredQuery(c, "trackUrl"));
       const eventsUrl = new URL("/events/", trackUrl).toString();
-      const page = await fetchTimingPage(timing.fetch, eventsUrl);
+      const page = await fetchStructuredTimingPage(timing.fetch, eventsUrl, "events", timing.browser);
       return c.json({ events: parseEvents(page.html, page.url) });
     } catch (error) {
       return timingRouteError(c, error, "unable to read LiveRC events");
@@ -129,7 +130,7 @@ export function createApp(workflow: AnalysisWorkflow, runtime?: AnalysisRuntime,
   app.get("/timing/races", async (c) => {
     if (!timing) return c.json({ error: "timing import is unavailable" }, 503);
     try {
-      const page = await fetchTimingPage(timing.fetch, normalizeLiveRcUrl(requiredQuery(c, "eventUrl"), "eventUrl").toString());
+      const page = await fetchStructuredTimingPage(timing.fetch, normalizeLiveRcUrl(requiredQuery(c, "eventUrl"), "eventUrl").toString(), "races", timing.browser);
       return c.json({ races: parseRaces(page.html, page.url) });
     } catch (error) {
       return timingRouteError(c, error, "unable to read LiveRC races");
@@ -138,7 +139,7 @@ export function createApp(workflow: AnalysisWorkflow, runtime?: AnalysisRuntime,
   app.get("/timing/drivers", async (c) => {
     if (!timing) return c.json({ error: "timing import is unavailable" }, 503);
     try {
-      const page = await fetchTimingPage(timing.fetch, normalizeLiveRcUrl(requiredQuery(c, "raceUrl"), "raceUrl").toString());
+      const page = await fetchStructuredTimingPage(timing.fetch, normalizeRaceResultUrl(requiredQuery(c, "raceUrl")).toString(), "drivers", timing.browser);
       return c.json({ drivers: parseDrivers(page.html) });
     } catch (error) {
       return timingRouteError(c, error, "unable to read LiveRC drivers");
@@ -153,7 +154,7 @@ export function createApp(workflow: AnalysisWorkflow, runtime?: AnalysisRuntime,
       normalizeTrackUrl(parsed.data.trackUrl);
       normalizeLiveRcUrl(parsed.data.eventUrl, "eventUrl");
       normalizeRaceResultUrl(parsed.data.raceUrl);
-      const value = await importTiming(parsed.data, timing.fetch, timing.store);
+      const value = await importTiming(parsed.data, timing.fetch, timing.store, timing.browser);
       return c.json(value, 201);
     } catch (error) {
       return timingRouteError(c, error, "unable to import LiveRC timing");

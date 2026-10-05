@@ -10,7 +10,7 @@ describe("shared timing contract", () => {
     };
     const persisted: TimingImport = {
       ...request, id: "import-1", source: "liverc", raceId: request.raceId ?? null, driverId: request.driverId ?? null,
-      normalizedDriverName: "driver", fetchedAt: "2026-07-14T00:00:00.000Z", parserVersion: "liverc-html-v1", sourceHash: "hash", laps: [],
+      normalizedDriverName: "driver", fetchedAt: "2026-07-14T00:00:00.000Z", parserVersion: "liverc-dom-v2", sourceHash: "hash", laps: [],
     };
     expect(persisted).toMatchObject({ source: "liverc", raceId: null, driverId: null, laps: [] });
   });

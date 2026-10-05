@@ -3,3 +3,5 @@ data/
 client/dist/
 api/.wrangler/
 .vscode/
+test-results/
+playwright-report/
