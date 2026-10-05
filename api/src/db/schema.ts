@@ -33,3 +33,25 @@ export const timingImports = sqliteTable("timing_imports", {
 export const timingLaps = sqliteTable("timing_laps", {
   id: integer("id").primaryKey({ autoIncrement: true }), importId: text("import_id").notNull().references(() => timingImports.id, { onDelete: "cascade" }), lapNumber: integer("lap_number").notNull(), lapTimeSeconds: real("lap_time_seconds"), lapTimeText: text("lap_time_text").notNull(), valid: integer("valid"), statusText: text("status_text"),
 });
+
+export const processingRuns = sqliteTable("processing_runs", {
+  id: text("id").primaryKey(),
+  analysisId: text("analysis_id").notNull().references(() => analyses.id, { onDelete: "cascade" }),
+  correctionSetId: text("correction_set_id").notNull().references(() => correctionSets.id),
+  providerVersion: text("provider_version").notNull(),
+  status: text("status").notNull(),
+  frame: integer("frame").notNull().default(-1),
+  error: text("error"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
+export const localArtifacts = sqliteTable("local_artifacts", {
+  id: text("id").primaryKey(),
+  analysisId: text("analysis_id").notNull().references(() => analyses.id, { onDelete: "cascade" }),
+  runId: text("run_id").notNull().references(() => processingRuns.id),
+  correctionSetId: text("correction_set_id").notNull().references(() => correctionSets.id),
+  kind: text("kind").notNull(),
+  path: text("path").notNull(),
+  createdAt: text("created_at").notNull(),
+});

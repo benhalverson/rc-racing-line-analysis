@@ -6,6 +6,7 @@ export type AnalysisState =
   | "ready"
   | "queued"
   | "running"
+  | "needs_correction"
   | "completed"
   | "failed"
   | "cancelled";

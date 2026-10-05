@@ -10,7 +10,7 @@ const analysisRowSchema = z.object({
   videoPath: z.string(),
   videoName: z.string(),
   carDescription: z.string().nullable(),
-  state: z.enum(["draft", "awaiting_calibration", "ready", "queued", "running", "completed", "failed", "cancelled"]),
+  state: z.enum(["draft", "awaiting_calibration", "ready", "queued", "running", "needs_correction", "completed", "failed", "cancelled"]),
   phase: z.enum(["created", "calibrating", "tracking", "review"]),
   progress: z.number().min(0).max(1),
   checkpoint: z.string().nullable(),

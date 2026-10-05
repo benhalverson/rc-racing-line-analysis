@@ -14,6 +14,7 @@ export type CalibrationMode = 'idle' | 'marker' | 'car';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class CalibrationCanvas implements AfterViewInit, OnChanges, OnDestroy {
+  @Input() videoBlob: Blob | undefined;
   @Input() videoRef: LocalVideoRef | undefined;
   @Input() markers: CorrectionMarker[] = [];
   @Input() selectedCarBox: NormalizedBox | null = null;
@@ -45,14 +46,20 @@ export class CalibrationCanvas implements AfterViewInit, OnChanges, OnDestroy {
   private dragCurrent: NormalizedPoint | undefined;
   private dragMarkerId: string | undefined;
 
+  /** Loads the selected local blob or persisted browser reference once the view exists. */
   ngAfterViewInit() {
-    if (this.videoRef) void this.loadStoredVideo(this.videoRef);
+    if (this.videoBlob) this.loadBlob(this.videoBlob);
+    else if (this.videoRef) void this.loadStoredVideo(this.videoRef);
   }
 
+  /** Updates local video ownership and geometry overlays when inputs change. */
   ngOnChanges(changes: SimpleChanges) {
     // biome-ignore lint/complexity/useLiteralKeys: Angular SimpleChanges uses an index signature.
+    const blobChange = changes['videoBlob'];
+    if (blobChange && this.videoBlob) this.loadBlob(this.videoBlob);
+    // biome-ignore lint/complexity/useLiteralKeys: Angular SimpleChanges uses an index signature.
     const videoChange = changes['videoRef'];
-    if (videoChange && this.videoRef && this.videoRef.id !== videoChange.previousValue?.id) {
+    if (!this.videoBlob && videoChange && this.videoRef && this.videoRef.id !== videoChange.previousValue?.id) {
       void this.loadStoredVideo(this.videoRef);
     }
     this.drawOverlay();
@@ -61,6 +68,17 @@ export class CalibrationCanvas implements AfterViewInit, OnChanges, OnDestroy {
   ngOnDestroy() {
     this.loadGeneration += 1;
     this.revokeObjectUrl();
+  }
+
+  /** Displays the original selected file without reading Node storage through OPFS. */
+  private loadBlob(blob: Blob) {
+    this.loadGeneration += 1;
+    this.error.set('');
+    this.isLoaded.set(false);
+    this.revokeObjectUrl();
+    this.objectUrl = URL.createObjectURL(blob);
+    this.videoElement.nativeElement.src = this.objectUrl;
+    this.videoElement.nativeElement.load();
   }
 
   async loadStoredVideo(ref: LocalVideoRef) {

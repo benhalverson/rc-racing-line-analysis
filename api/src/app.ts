@@ -60,7 +60,7 @@ const createAnalysis = z.object({
   videoPath: z.string().trim().min(1),
   videoName: z.string().trim().min(1),
   carDescription: z.string().trim().optional(),
-  videoStorage: z.literal("browser-sqlite").default("browser-sqlite"),
+  videoStorage: z.enum(["browser-sqlite", "local-disk"]).default("browser-sqlite"),
   localVideoRef: z.object({ id: z.string().min(1), name: z.string().min(1), mimeType: z.string().min(1), size: z.number().nonnegative(), lastModified: z.number().nonnegative() }).optional(),
 });
 
@@ -102,7 +102,8 @@ const timingImportRequestSchema = z.object({
 
 export type TimingRuntime = { fetch: TimingFetcher; browser?: TimingFetcher; store: TimingStore };
 
-export function createApp(workflow: AnalysisWorkflow, runtime?: AnalysisRuntime, timing?: TimingRuntime) {
+/** Adapt lifecycle, calibration, and timing ports to HTTP; local disk access is explicitly scoped. */
+export function createApp(workflow: AnalysisWorkflow, runtime?: AnalysisRuntime, timing?: TimingRuntime, options?: { localVideo?: boolean }) {
   const app = new Hono();
   app.get("/health", (c) => c.json({ ok: true }));
   app.get("/timing/tracks", async (c) => {
@@ -176,6 +177,7 @@ export function createApp(workflow: AnalysisWorkflow, runtime?: AnalysisRuntime,
     const parsed = createAnalysis.safeParse(input);
     if (!parsed.success)
       return c.json({ error: "videoPath and videoName are required" }, 400);
+    if (parsed.data.videoStorage === "local-disk" && !options?.localVideo) return c.json({ error: "local video runtime is unavailable" }, 400);
     return c.json(await workflow.createDraft(parsed.data), 201);
   });
   app.post("/analyses/:id/calibration/start", (c) => result(c, () => workflow.startCalibration(c.req.param("id"))));
@@ -184,7 +186,7 @@ export function createApp(workflow: AnalysisWorkflow, runtime?: AnalysisRuntime,
     if (!parsed.success) return c.json({ error: "invalid correction set", details: parsed.error.flatten() }, 400);
     try {
       const analysis = await workflow.get(c.req.param("id"));
-      if (analysis.videoStorage !== "browser-sqlite") return c.json({ error: "only browser-sqlite videos are supported" }, 400);
+      if (analysis.videoStorage !== "browser-sqlite" && !(options?.localVideo && analysis.videoStorage === "local-disk")) return c.json({ error: "only browser-sqlite videos are supported" }, 400);
       const created = await (workflow as AnalysisWorkflowWithCorrections).createAndAcceptCorrectionSet(c.req.param("id"), parsed.data);
       return c.json(created, 201);
     } catch (error) { return c.json({ error: errorMessage(error) }, 400); }

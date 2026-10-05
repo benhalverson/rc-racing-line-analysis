@@ -2,7 +2,8 @@ import { isNormalizedBox, type CorrectionMarker, type NormalizedBox, type Normal
 
 export type MarkerDetectionStatus = 'not-run' | 'empty' | 'found';
 export interface CalibrationState { raceStartSeconds: number | null; markerReferenceSeconds: number | null; carSelectionSeconds: number | null; markers: CorrectionMarker[]; selectedCarBox: NormalizedBox | null; markerDetectionStatus: MarkerDetectionStatus; }
-export const canStartCalibration = (analysisState: string) => analysisState === 'draft';
+/** Allows explicit calibration entry only before processing or after a terminal run. */
+export const canStartCalibration = (analysisState: string) => ['draft', 'needs_correction', 'completed', 'failed', 'cancelled'].includes(analysisState);
 export const emptyCalibration = (): CalibrationState => ({ raceStartSeconds: null, markerReferenceSeconds: null, carSelectionSeconds: null, markers: [], selectedCarBox: null, markerDetectionStatus: 'not-run' });
 export function addMarker(state: CalibrationState, position: NormalizedPoint, source: CorrectionMarker['source'] = 'manual'): CalibrationState { return { ...state, markers: [...state.markers, { id: crypto.randomUUID(), position, source }] }; }
 export function moveMarker(state: CalibrationState, id: string, position: NormalizedPoint): CalibrationState { return { ...state, markers: state.markers.map((marker) => marker.id === id ? { ...marker, position, source: 'manual' } : marker) }; }
