@@ -18,10 +18,16 @@
           "options": {
             "browser": "src/main.ts",
             "tsConfig": "tsconfig.app.json",
+            "webWorkerTsConfig": "tsconfig.worker.json",
             "assets": [
               {
                 "glob": "**/*",
                 "input": "public"
+              },
+              {
+                "glob": "{sqlite3.wasm,sqlite3-opfs-async-proxy.js}",
+                "input": "node_modules/@sqlite.org/sqlite-wasm/dist",
+                "output": "."
               }
             ],
             "styles": ["src/styles.css"]
@@ -53,7 +59,11 @@
         "serve": {
           "builder": "@angular/build:dev-server",
           "options": {
-            "proxyConfig": "proxy.conf.json"
+            "proxyConfig": "proxy.conf.json",
+            "headers": {
+              "Cross-Origin-Opener-Policy": "same-origin",
+              "Cross-Origin-Embedder-Policy": "require-corp"
+            }
           },
           "configurations": {
             "production": {

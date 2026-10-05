@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1791171714749,
+      "tag": "0000_blushing_mandroid",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1791174189071,
+      "tag": "0001_selected_car_tracking",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1791176119594,
+      "tag": "0002_late_daimon_hellstrom",
+      "breakpoints": true
+    }
+  ]
+}

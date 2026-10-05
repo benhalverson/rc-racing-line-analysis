@@ -1,9 +1,11 @@
+import { fetchStructuredTimingPage } from "./timing-browser";
 import { Hono } from "hono";
 import { z } from "zod";
+import { isNormalizedBox, isNormalizedPoint, type CorrectionSet } from "../../shared/calibration-contract";
 import { errorMessage } from "./errors";
 import type { AnalysisProgressRoom } from "./progress-room";
 import type { AnalysisWorkflow } from "./workflow";
-import { fetchTimingPage, importTiming, normalizeLiveRcUrl, normalizeRaceResultUrl, normalizeTrackUrl, parseDrivers, parseEvents, parseRaces, parseTrackList, TimingUpstreamError, type TimingFetcher, type TimingStore } from "./timing";
+import { importTiming, normalizeLiveRcUrl, normalizeRaceResultUrl, normalizeTrackUrl, parseDrivers, parseEvents, parseRaces, parseTrackList, TimingGatewayError, TimingParserError, TimingUpstreamError, type TimingFetcher, type TimingStore } from "./timing";
 
 export interface AnalysisRuntime {
   workflow: {
@@ -58,6 +60,20 @@ const createAnalysis = z.object({
   videoPath: z.string().trim().min(1),
   videoName: z.string().trim().min(1),
   carDescription: z.string().trim().optional(),
+  videoStorage: z.enum(["browser-sqlite", "local-disk"]).default("browser-sqlite"),
+  localVideoRef: z.object({ id: z.string().min(1), name: z.string().min(1), mimeType: z.string().min(1), size: z.number().nonnegative(), lastModified: z.number().nonnegative() }).optional(),
+});
+
+const correctionSet = z.object({
+  raceStartSeconds: z.number().finite().nonnegative(),
+  markerReferenceSeconds: z.number().finite().nonnegative(),
+  carSelectionSeconds: z.number().finite().nonnegative(),
+  markers: z.array(z.object({ id: z.string().min(1), position: z.object({ x: z.number(), y: z.number() }), source: z.enum(["detected", "manual"]) })).min(1),
+  selectedCarBox: z.object({ x: z.number(), y: z.number(), width: z.number(), height: z.number() }),
+  carDescription: z.string().trim().optional(),
+}).superRefine((value, ctx) => {
+  if (!isNormalizedBox(value.selectedCarBox)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["selectedCarBox"], message: "selectedCarBox must be normalized and within the frame" });
+  value.markers.forEach((marker, index) => { if (!isNormalizedPoint(marker.position)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["markers", index, "position"], message: "marker position must be normalized" }); });
 });
 
 const timingImportRequiredFields = {
@@ -84,15 +100,16 @@ const timingImportRequestSchema = z.object({
   driverId: timingImportId,
 }).strict();
 
-export type TimingRuntime = { fetch: TimingFetcher; store: TimingStore };
+export type TimingRuntime = { fetch: TimingFetcher; browser?: TimingFetcher; store: TimingStore };
 
-export function createApp(workflow: AnalysisWorkflow, runtime?: AnalysisRuntime, timing?: TimingRuntime) {
+/** Adapt lifecycle, calibration, and timing ports to HTTP; local disk access is explicitly scoped. */
+export function createApp(workflow: AnalysisWorkflow, runtime?: AnalysisRuntime, timing?: TimingRuntime, options?: { localVideo?: boolean }) {
   const app = new Hono();
   app.get("/health", (c) => c.json({ ok: true }));
   app.get("/timing/tracks", async (c) => {
     if (!timing) return c.json({ error: "timing import is unavailable" }, 503);
     try {
-      const page = await fetchTimingPage(timing.fetch, "https://live.liverc.com/");
+      const page = await fetchStructuredTimingPage(timing.fetch, "https://live.liverc.com/", "tracks", timing.browser);
       const query = searchKey(c.req.query("query") ?? "");
       const tracks = parseTrackList(page.html, page.url).filter((track) => !query || searchKey(`${track.name} ${track.host}`).includes(query));
       return c.json({ tracks });
@@ -105,7 +122,7 @@ export function createApp(workflow: AnalysisWorkflow, runtime?: AnalysisRuntime,
     try {
       const trackUrl = normalizeTrackUrl(requiredQuery(c, "trackUrl"));
       const eventsUrl = new URL("/events/", trackUrl).toString();
-      const page = await fetchTimingPage(timing.fetch, eventsUrl);
+      const page = await fetchStructuredTimingPage(timing.fetch, eventsUrl, "events", timing.browser);
       return c.json({ events: parseEvents(page.html, page.url) });
     } catch (error) {
       return timingRouteError(c, error, "unable to read LiveRC events");
@@ -114,7 +131,7 @@ export function createApp(workflow: AnalysisWorkflow, runtime?: AnalysisRuntime,
   app.get("/timing/races", async (c) => {
     if (!timing) return c.json({ error: "timing import is unavailable" }, 503);
     try {
-      const page = await fetchTimingPage(timing.fetch, normalizeLiveRcUrl(requiredQuery(c, "eventUrl"), "eventUrl").toString());
+      const page = await fetchStructuredTimingPage(timing.fetch, normalizeLiveRcUrl(requiredQuery(c, "eventUrl"), "eventUrl").toString(), "races", timing.browser);
       return c.json({ races: parseRaces(page.html, page.url) });
     } catch (error) {
       return timingRouteError(c, error, "unable to read LiveRC races");
@@ -123,7 +140,7 @@ export function createApp(workflow: AnalysisWorkflow, runtime?: AnalysisRuntime,
   app.get("/timing/drivers", async (c) => {
     if (!timing) return c.json({ error: "timing import is unavailable" }, 503);
     try {
-      const page = await fetchTimingPage(timing.fetch, normalizeLiveRcUrl(requiredQuery(c, "raceUrl"), "raceUrl").toString());
+      const page = await fetchStructuredTimingPage(timing.fetch, normalizeRaceResultUrl(requiredQuery(c, "raceUrl")).toString(), "drivers", timing.browser);
       return c.json({ drivers: parseDrivers(page.html) });
     } catch (error) {
       return timingRouteError(c, error, "unable to read LiveRC drivers");
@@ -138,7 +155,7 @@ export function createApp(workflow: AnalysisWorkflow, runtime?: AnalysisRuntime,
       normalizeTrackUrl(parsed.data.trackUrl);
       normalizeLiveRcUrl(parsed.data.eventUrl, "eventUrl");
       normalizeRaceResultUrl(parsed.data.raceUrl);
-      const value = await importTiming(parsed.data, timing.fetch, timing.store);
+      const value = await importTiming(parsed.data, timing.fetch, timing.store, timing.browser);
       return c.json(value, 201);
     } catch (error) {
       return timingRouteError(c, error, "unable to import LiveRC timing");
@@ -156,10 +173,27 @@ export function createApp(workflow: AnalysisWorkflow, runtime?: AnalysisRuntime,
     return value ? c.json(value) : c.json({ error: "timing import not found" }, 404);
   });
   app.post("/analyses", async (c) => {
-    const parsed = createAnalysis.safeParse(await c.req.json());
+    const input = await c.req.json();
+    const parsed = createAnalysis.safeParse(input);
     if (!parsed.success)
       return c.json({ error: "videoPath and videoName are required" }, 400);
+    if (parsed.data.videoStorage === "local-disk" && !options?.localVideo) return c.json({ error: "local video runtime is unavailable" }, 400);
     return c.json(await workflow.createDraft(parsed.data), 201);
+  });
+  app.post("/analyses/:id/calibration/start", (c) => result(c, () => workflow.startCalibration(c.req.param("id"))));
+  app.post("/analyses/:id/correction-sets", async (c) => {
+    const parsed = correctionSet.safeParse(await c.req.json());
+    if (!parsed.success) return c.json({ error: "invalid correction set", details: parsed.error.flatten() }, 400);
+    try {
+      const analysis = await workflow.get(c.req.param("id"));
+      if (analysis.videoStorage !== "browser-sqlite" && !(options?.localVideo && analysis.videoStorage === "local-disk")) return c.json({ error: "only browser-sqlite videos are supported" }, 400);
+      const created = await (workflow as AnalysisWorkflowWithCorrections).createAndAcceptCorrectionSet(c.req.param("id"), parsed.data);
+      return c.json(created, 201);
+    } catch (error) { return c.json({ error: errorMessage(error) }, 400); }
+  });
+  app.get("/analyses/:id/correction-sets", async (c) => {
+    try { return c.json({ correctionSets: await (workflow as AnalysisWorkflowWithCorrections).listCorrectionSets(c.req.param("id")) }); }
+    catch (error) { return c.json({ error: errorMessage(error) }, 404); }
   });
   app.get("/analyses/:id", (c) =>
     result(c, () => workflow.get(c.req.param("id")), 404),
@@ -246,6 +280,12 @@ export function createApp(workflow: AnalysisWorkflow, runtime?: AnalysisRuntime,
   return app;
 }
 
+type AnalysisWorkflowWithCorrections = AnalysisWorkflow & {
+  createAndAcceptCorrectionSet(id: string, payload: CorrectionSetPayload): Promise<CorrectionSet>;
+  listCorrectionSets(id: string): Promise<CorrectionSet[]>;
+};
+type CorrectionSetPayload = Omit<CorrectionSet, "id" | "analysisId" | "version" | "accepted" | "createdAt">;
+
 function requiredQuery(c: { req: { query: (name: string) => string | undefined } }, name: string) {
   const value = c.req.query(name);
   if (!value?.trim()) throw new Error(`${name} is required`);
@@ -253,7 +293,8 @@ function requiredQuery(c: { req: { query: (name: string) => string | undefined }
 }
 
 function timingRouteError(c: { json: (body: { error: string }, status: 400 | 502) => Response }, error: unknown, fallback: string) {
-  return c.json({ error: error instanceof Error ? error.message : fallback }, error instanceof TimingUpstreamError ? 502 : 400);
+	const isGatewayError = error instanceof TimingGatewayError || error instanceof TimingParserError || error instanceof TimingUpstreamError;
+	return c.json({ error: error instanceof Error ? error.message : fallback }, isGatewayError ? 502 : 400);
 }
 
 function searchKey(value: string) {

@@ -3,19 +3,27 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "wrangler d1 migrations apply rc-racing-line-analysis --local && wrangler dev",
+    "dev": "tsx src/local-server.ts",
     "build": "wrangler deploy --dry-run",
     "types": "wrangler types",
-    "db:generate": "drizzle-kit generate"
+    "db:generate": "drizzle-kit generate",
+    "dev:local": "tsx src/local-server.ts",
+    "dev:worker": "wrangler d1 migrations apply rc-racing-line-analysis --local && wrangler dev"
   },
   "dependencies": {
-    "drizzle-orm": "^0.44.2",
-    "hono": "^4.9.0",
-    "zod": "^3.25.0"
+    "acorn": "^8.18.0",
+    "cheerio": "^1.2.0",
+    "drizzle-orm": "^0.45.2",
+    "hono": "^4.13.7",
+    "zod": "^3.25.0",
+    "better-sqlite3": "^12.4.1",
+    "@hono/node-server": "^1.19.0"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260714.1",
     "drizzle-kit": "^0.31.4",
-    "wrangler": "^4.25.0"
+    "wrangler": "^4.25.0",
+    "@types/better-sqlite3": "^7.6.13",
+    "tsx": "^4.20.0"
   }
 }
