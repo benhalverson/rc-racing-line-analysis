@@ -1,30 +1,37 @@
+import type { TrackingArtifacts } from '../../../shared/tracking-contract';
 import { DecimalPipe } from '@angular/common';
 import { Component, DestroyRef, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import type { Subscription } from 'rxjs';
-import { AnalysisApi, type Analysis, type AnalysisConnectionState, type BoundingBox, type TrackingData } from './app/analysis-api';
+import { AnalysisApi, type Analysis, type AnalysisConnectionState } from './app/analysis-api';
 import { TimingApi, type TimingDriver, type TimingEvent, type TimingImportSummary, type TimingRace, type TimingTrack } from './app/timing-api';
 import { buildTimingImportRequest, confirmTimingSelection, emptyTimingSelection, selectTimingDriver, selectTimingEvent, selectTimingRace, selectTimingTrack, timingDriverOptionKey, timingImportReadiness, timingSelectionIsConfirmed, type TimingSelection } from './app/timing-selection';
+import { LocalRuntime, type StabilizationReview } from './app/local-runtime';
+import { BrowserSqliteStore } from './app/browser-sqlite';
+import { CalibrationCanvas, type CalibrationMode } from './app/calibration-canvas';
+import { addMarker, calibrationReadiness, canStartCalibration as canStartCalibrationState, emptyCalibration, markerStatus, moveMarker, removeMarker, replaceDetectedMarkers, type CalibrationState } from './app/calibration-state';
+import type { CorrectionSet, LocalVideoRef, NormalizedBox, NormalizedPoint } from '../../../shared/calibration-contract';
 @Component({
   selector: 'app-root',
-  imports: [DecimalPipe],
+  imports: [DecimalPipe, CalibrationCanvas],
   templateUrl: './app.html',
   styleUrl: './app.css',
 })
 export class App {
   private readonly api = inject(AnalysisApi);
   private readonly timingApi = inject(TimingApi);
+  private readonly videoStore = inject(BrowserSqliteStore);
+  private readonly runtime = inject(LocalRuntime);
+  readonly trackingReview = signal<TrackingArtifacts | undefined>(undefined);
+  readonly recoveryBox = signal<NormalizedBox | null>(null);
+  readonly recoveryError = signal('');
+  readonly localNode = signal(false);
+  readonly stabilizationReview = signal<StabilizationReview | undefined>(undefined);
+  readonly selectedVideo = signal<Blob | undefined>(undefined);
   private readonly destroyRef = inject(DestroyRef);
   private updates?: Subscription;
   readonly videoPath = signal('');
   readonly carDescription = signal('');
-  readonly initialBox = signal<BoundingBox>({ x: 0, y: 0, width: 1, height: 1 });
-  readonly reboxFrame = signal(0);
-  readonly reboxTimestampMs = signal(0);
-  readonly reboxBox = signal<BoundingBox>({ x: 0, y: 0, width: 1, height: 1 });
-  readonly reboxObservationFilePath = signal('');
-  readonly reboxQualityArtifactPath = signal('');
-  readonly tracking = signal<TrackingData | undefined>(undefined);
   readonly message = signal('');
   readonly analysis = signal<Analysis | undefined>(undefined);
   readonly connectionState = signal<AnalysisConnectionState>('disconnected');
@@ -36,26 +43,127 @@ export class App {
   readonly timingError = signal('');
   readonly trackQuery = signal('');
   readonly savedImports = signal<TimingImportSummary[]>([]);
+  readonly localVideoRef = signal<LocalVideoRef | undefined>(undefined);
+  readonly calibration = signal<CalibrationState>(emptyCalibration());
+  readonly markerX = signal(0.5);
+  readonly markerY = signal(0.5);
+  readonly samStatus = signal<'idle' | 'loading' | 'webgpu' | 'wasm' | 'failed'>('idle');
+  readonly calibrationError = signal('');
+  readonly calibrationMode = signal<CalibrationMode>('idle');
+  readonly canStartCalibration = canStartCalibrationState;
+  readonly calibrationReadiness = calibrationReadiness;
+  readonly markerStatus = markerStatus;
+  private videoSave?: Promise<void>;
+  private videoSelectionGeneration = 0;
+  private reviewGeneration = 0;
+  private videoSaveFailed = false;
+  private videoSaveError = '';
+  /** Saves selected footage to the discovered local runtime or browser storage. */
   selectVideo(event: Event) {
     const file = (event.target as HTMLInputElement).files?.[0];
-    if (file) this.videoPath.set(`local://${file.name}`);
+    if (!file) return;
+    const generation = ++this.videoSelectionGeneration;
+    this.localVideoRef.set(undefined);
+    this.selectedVideo.set(undefined);
+    this.updates?.unsubscribe();
+    this.analysis.set(undefined);
+    this.clearStabilizationReview();
+    this.calibration.set(emptyCalibration());
+    this.videoSaveFailed = false;
+    this.videoSaveError = '';
+    this.videoPath.set(file.name);
+    this.message.set('Saving video in browser storage…');
+    this.videoSave = this.runtime.available().then(async (local) => {
+      if (generation !== this.videoSelectionGeneration) return;
+      this.localNode.set(local);
+      if (local) {
+        const imported = await this.runtime.importVideo(file);
+        if (generation !== this.videoSelectionGeneration) return;
+        this.selectedVideo.set(file);
+        this.localVideoRef.set(imported.localVideoRef);
+        this.videoPath.set(imported.videoPath);
+        this.message.set('Video saved on this machine for local processing.');
+        return;
+      }
+      this.selectedVideo.set(undefined);
+      const ref = await this.videoStore.saveVideo(file);
+      if (generation !== this.videoSelectionGeneration) return;
+      this.localVideoRef.set(ref);
+      this.videoPath.set(`browser-sqlite://${ref.id}`);
+      this.message.set('Video saved in browser SQLite.');
+    })
+      .catch((error: Error) => {
+        if (generation !== this.videoSelectionGeneration) return;
+        this.videoSaveFailed = true;
+        this.videoSaveError = error.message;
+        this.message.set(error.message);
+      });
   }
-  createDraft() {
+  /** Creates a draft only after the selected local video has finished saving. */
+  async createDraft() {
+    if (this.videoSave) this.message.set('Finishing video save before creating the draft…');
+    try {
+      await this.videoSave;
+    } catch {
+      return;
+    }
+    if (this.videoSaveFailed) {
+      this.message.set(this.videoSaveError || 'The video was not saved in browser storage.');
+      return;
+    }
     this.api
       .createDraft({
         videoPath: this.videoPath(),
-        videoName: this.videoPath().split('/').pop() ?? '',
+        videoName: this.localVideoRef()?.name ?? this.videoPath().split('/').pop() ?? '',
         carDescription: this.carDescription() || undefined,
-        initialBox: this.initialBox(),
+        videoStorage: this.localNode() ? 'local-disk' : 'browser-sqlite',
+        localVideoRef: this.localVideoRef(),
       })
       .subscribe({
         next: (value) => {
           this.analysis.set(value);
-          this.loadTracking(value.id);
           this.message.set('Draft saved locally.');
         },
         error: () => this.message.set('Unable to create draft.'),
       });
+  }
+  /** Enters correction mode through the workflow authority before accepting a revision. */
+  startCalibration() { const current = this.analysis(); if (!current || !canStartCalibrationState(current.state)) return; this.api.startCalibration(current.id).subscribe({ next: (value) => { this.analysis.set(value); this.clearStabilizationReview(); this.calibrationMode.set('car'); }, error: (error) => this.calibrationError.set(timingError(error, 'Unable to start calibration.')) }); }
+  setRaceStart(seconds: number) { this.calibration.update((state) => ({ ...state, raceStartSeconds: finiteOrNull(seconds) })); this.calibrationMode.set('idle'); }
+  setMarkerReference(seconds: number) { this.calibration.update((state) => ({ ...state, markerReferenceSeconds: finiteOrNull(seconds), markers: [], markerDetectionStatus: 'not-run' })); this.calibrationMode.set('marker'); }
+  setCarSelection(seconds: number) { this.calibration.update((state) => ({ ...state, carSelectionSeconds: finiteOrNull(seconds) })); this.calibrationMode.set('car'); }
+  addCalibrationMarker(position: NormalizedPoint) { this.calibration.update((state) => addMarker(state, position)); }
+  moveCalibrationMarker(change: { id: string; position: NormalizedPoint }) { this.calibration.update((state) => moveMarker(state, change.id, change.position)); }
+  replaceDetectedCalibrationMarkers(positions: NormalizedPoint[]) {
+    const current = this.calibration();
+    if (current.markers.length && !window.confirm('Replace the current marker corrections with fresh detection results?')) return;
+    this.calibration.update((state) => replaceDetectedMarkers(state, positions));
+  }
+  setCarBox(box: NormalizedBox) { this.calibration.update((state) => ({ ...state, selectedCarBox: box })); }
+  removeCalibrationMarker(id: string) { this.calibration.update((state) => removeMarker(state, id)); }
+  /** Persists accepted corrections through the active local analysis authority. */
+  saveCalibration() {
+    const current = this.analysis();
+    const state = this.calibration();
+    const readiness = calibrationReadiness(state);
+    if (current?.state !== 'awaiting_calibration' || readiness || state.raceStartSeconds === null || state.markerReferenceSeconds === null || state.carSelectionSeconds === null || !state.selectedCarBox) {
+      this.calibrationError.set(readiness ?? 'Enable calibration before saving corrections.');
+      return;
+    }
+    this.calibrationError.set('');
+    const payload = { raceStartSeconds: state.raceStartSeconds, markerReferenceSeconds: state.markerReferenceSeconds, carSelectionSeconds: state.carSelectionSeconds, markers: state.markers, selectedCarBox: state.selectedCarBox, carDescription: this.carDescription() || undefined };
+    const localSet: CorrectionSet = { ...payload, id: crypto.randomUUID(), analysisId: current.id, version: 0, accepted: false, createdAt: new Date().toISOString() };
+    const localNode = this.localNode();
+    (localNode ? Promise.resolve() : this.videoStore.saveCorrectionSet(localSet)).then(() => this.api.saveCorrectionSet(current.id, payload).subscribe({
+      next: (set) => {
+        if (!localNode) this.videoStore.saveCorrectionSet(set).catch(() => undefined);
+        if (this.analysis()?.id !== current.id) return;
+        this.analysis.update((analysis) => analysis ? { ...analysis, state: 'ready', acceptedCorrectionSetId: set.id } : analysis);
+        this.clearStabilizationReview();
+        this.message.set(`Correction set v${set.version} saved for processing.`);
+      },
+      error: () => this.calibrationError.set(localNode ? 'Unable to save corrections to the local workflow. Retry.' : 'Saved locally; synchronization failed. Retry when connected.'),
+    })).catch((error: Error) => this.calibrationError.set(error.message));
   }
   queue() {
     this.action('queue');
@@ -68,29 +176,6 @@ export class App {
   }
   resume() {
     this.action('resume');
-  }
-  updateInitialBox(key: keyof BoundingBox, value: string) {
-    this.initialBox.update((box) => ({ ...box, [key]: Number(value) }));
-  }
-  updateReboxBox(key: keyof BoundingBox, value: string) {
-    this.reboxBox.update((box) => ({ ...box, [key]: Number(value) }));
-  }
-  rebox() {
-    const current = this.analysis();
-    if (!current) return;
-    this.api.rebox(current.id, {
-      frameNumber: this.reboxFrame(),
-      timestampMs: this.reboxTimestampMs(),
-      box: this.reboxBox(),
-      observationFilePath: this.reboxObservationFilePath(),
-      qualityArtifactPath: this.reboxQualityArtifactPath(),
-    }).subscribe({
-      next: (tracking) => {
-        this.tracking.set(tracking);
-        this.resume();
-      },
-      error: () => this.message.set('Unable to resume tracking from this box.'),
-    });
   }
   searchTracks() {
     this.timingError.set('');
@@ -120,7 +205,6 @@ export class App {
     this.timingApi.drivers(race.url).subscribe({ next: (value) => { if (this.timingSelection().race === race) this.drivers.set(value.drivers); }, error: (error) => { if (this.timingSelection().race === race) this.timingError.set(timingError(error, 'Unable to load drivers for this race.')); } });
   }
   chooseDriver(driver: TimingDriver | undefined) { if (driver) this.timingSelection.update((selection) => selectTimingDriver(selection, driver)); }
-  setClassLabel(classLabel: string) { this.timingSelection.update((selection) => ({ ...selection, classLabel, importedResult: undefined, confirmedIdentity: undefined })); }
   reviewSelectedTiming() {
     const selection = this.timingSelection();
     if (!timingImportReadiness(selection)) this.timingSelection.set(confirmTimingSelection(selection));
@@ -140,7 +224,7 @@ export class App {
       next: (value) => this.timingSelection.set({
         track: { host: value.trackHost, name: value.trackName, url: value.trackUrl },
         event: { name: value.eventName, url: value.eventUrl },
-        race: { id: value.raceId ?? 'persisted', label: value.raceLabel, url: value.raceUrl },
+        race: { id: value.raceId ?? 'persisted', label: value.raceLabel, classLabel: value.classLabel, url: value.raceUrl },
         classLabel: value.classLabel,
         driver: { name: value.driverName, normalizedName: value.normalizedDriverName, ...(value.driverId ? { driverId: value.driverId } : {}) },
         importedResult: value,
@@ -152,6 +236,7 @@ export class App {
     const current = this.timingSelection();
     return current.track === selection.track && current.event === selection.event && current.race === selection.race && current.driver === selection.driver && current.classLabel === selection.classLabel;
   }
+  /** Applies a lifecycle transition through the workflow and invalidates stale run diagnostics. */
   private action(action: 'queue' | 'start' | 'cancel' | 'resume') {
     const current = this.analysis();
     if (!current) return;
@@ -160,29 +245,58 @@ export class App {
       .subscribe({
         next: (value) => {
           this.analysis.set(value);
+          if (action === 'queue' || action === 'start') this.clearStabilizationReview();
           if (action === 'start' || action === 'resume') this.connectToUpdates(value.id);
           if (action === 'cancel') this.updates?.unsubscribe();
         },
         error: () => this.message.set('That lifecycle action was not accepted.'),
       });
   }
+  /** Invalidates pending diagnostics whenever a different correction or run is selected. */
+  private clearStabilizationReview() {
+    this.reviewGeneration += 1;
+    this.stabilizationReview.set(undefined);
+    this.trackingReview.set(undefined);
+    this.recoveryBox.set(null);
+    this.recoveryError.set('');
+  }
+
+  /** Groups retained uncertainty for review without filling any missing car path. */
+  trackingIntervals() {
+    const regions: Array<{ startFrame: number; endFrame: number; quality: string }> = [];
+    for (const item of this.trackingReview()?.observations ?? []) {
+      if (item.quality !== 'lost' && item.quality !== 'suspect') continue;
+      const last = regions.at(-1);
+      if (last && last.quality === item.quality && last.endFrame + 1 === item.frame) last.endFrame = item.frame;
+      else regions.push({ startFrame: item.frame, endFrame: item.frame, quality: item.quality });
+    }
+    return regions;
+  }
+  /** Binds the drawn confirmation to the nearest actual decoded lost frame at the video cursor. */
+  confirmRecovery(seconds: number) {
+    const current = this.analysis(); const box = this.recoveryBox(); const output = this.trackingReview();
+    if (!current || !box || !output) return;
+    const observation = output.observations.reduce((nearest, item) => Math.abs(item.seconds - seconds) < Math.abs(nearest.seconds - seconds) ? item : nearest, output.observations[0]);
+    if (observation?.quality !== 'lost') { this.recoveryError.set('Seek to a lost source frame before confirming identity.'); return; }
+    this.api.rebox(current.id, observation.frame, box).subscribe({
+      next: () => { this.recoveryError.set(''); this.clearStabilizationReview(); this.resume(); },
+      error: (error) => this.recoveryError.set(timingError(error, 'Unable to confirm this recovery box.')),
+    });
+  }
+  /** Observes persisted progress and loads local quality diagnostics after the run. */
   private connectToUpdates(id: string) {
     this.updates?.unsubscribe();
     this.updates = this.api
-      .updates(id, (state) => this.connectionState.set(state))
+      .updates(id, (state) => this.connectionState.set(state), this.localNode())
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: (message) => {
-          this.analysis.set(message.analysis);
-          this.loadTracking(message.analysis.id);
-        },
-      });
-  }
-  private loadTracking(id: string) {
-    this.api.tracking(id).subscribe({
-      next: (tracking) => this.tracking.set(tracking),
-      error: () => this.message.set('Unable to load tracking status.'),
-    });
+      .subscribe({ next: (message) => {
+        this.analysis.set(message.analysis);
+        if (this.localNode() && ['completed', 'needs_correction', 'failed', 'cancelled'].includes(message.analysis.state)) {
+          const generation = this.reviewGeneration;
+          this.api.tracking(id).subscribe({ next: value => { if (this.analysis()?.id === id && generation === this.reviewGeneration) this.trackingReview.set(value.tracking); }, error: () => this.message.set('Unable to load tracking diagnostics.') });
+          this.api.artifacts(id).subscribe({ next: (value) => { if (this.analysis()?.id === id && generation === this.reviewGeneration) this.stabilizationReview.set(value.stabilization); }, error: () => this.message.set('Unable to load stabilization diagnostics.') });
+        }
+      } });
   }
 }
 
@@ -197,3 +311,5 @@ function timingError(error: unknown, fallback: string) {
   }
   return fallback;
 }
+
+function finiteOrNull(value: number) { return Number.isFinite(value) && value >= 0 ? value : null; }

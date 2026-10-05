@@ -5,12 +5,26 @@ import { AnalysisWorkflow } from "../src/workflow";
 
 function testApp() { return createApp(new AnalysisWorkflow(new InMemoryAnalysisStore())); }
 
+const correctionPayload = {
+  raceStartSeconds: 1,
+  markerReferenceSeconds: 2,
+  carSelectionSeconds: 3,
+  markers: [{ id: "m1", position: { x: 0.2, y: 0.3 }, source: "detected" as const }],
+  selectedCarBox: { x: 0.1, y: 0.1, width: 0.2, height: 0.2 },
+};
+
+async function prepareQueued(workflow: AnalysisWorkflow, draft: { id: string }) {
+  await workflow.startCalibration(draft.id);
+  await workflow.createAndAcceptCorrectionSet(draft.id, correctionPayload);
+  await workflow.queue(draft.id);
+}
+
 describe("AnalysisWorkflow", () => {
   it("creates a local draft and carries it through a resumable batch lifecycle", async () => {
     const workflow = new AnalysisWorkflow(new InMemoryAnalysisStore());
     const draft = await workflow.createDraft({ videoPath: "/races/heat-1.mp4", videoName: "heat-1.mp4", carDescription: "blue buggy" });
     expect(draft.state).toBe("draft");
-    await workflow.queue(draft.id);
+    await prepareQueued(workflow, draft);
     await workflow.start(draft.id);
     expect((await workflow.report(draft.id, { phase: "tracking", progress: 0.4, checkpoint: "frame-240" })).checkpoint).toBe("frame-240");
     await workflow.cancel(draft.id);
@@ -20,7 +34,7 @@ describe("AnalysisWorkflow", () => {
   it("advances a started batch through checkpoints to completed", async () => {
     const workflow = new AnalysisWorkflow(new InMemoryAnalysisStore());
     const draft = await workflow.createDraft({ videoPath: "/race.mp4", videoName: "race.mp4" });
-    await workflow.queue(draft.id);
+    await prepareQueued(workflow, draft);
     await workflow.start(draft.id);
     await workflow.report(draft.id, { phase: "calibrating", progress: 0.25, checkpoint: "calibration-complete" });
     await workflow.report(draft.id, { phase: "tracking", progress: 0.5, checkpoint: "tracking-halfway" });
@@ -34,27 +48,61 @@ describe("AnalysisWorkflow", () => {
     const workflow = new AnalysisWorkflow(new InMemoryAnalysisStore());
     const draft = await workflow.createDraft({ videoPath: "/race.mp4", videoName: "race.mp4" });
     await expect(workflow.cancel(draft.id)).rejects.toThrow("cannot transition draft to cancelled");
-    await workflow.queue(draft.id);
+    await expect(workflow.queue(draft.id)).rejects.toThrow("cannot transition draft to queued");
+    await prepareQueued(workflow, draft);
     await workflow.start(draft.id);
     await expect(workflow.report(draft.id, { phase: "tracking", progress: 2 })).rejects.toThrow("progress must be between 0 and 1");
   });
 });
 
 describe("analysis API", () => {
+  it("starts calibration and accepts a versioned correction set without video bytes", async () => {
+    const app = testApp();
+    const created = await app.request("/analyses", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ videoPath: "browser-sqlite://video-1", videoName: "race.mp4", videoStorage: "browser-sqlite", localVideoRef: { id: "video-1", name: "race.mp4", mimeType: "video/mp4", size: 10, lastModified: 1 } }) });
+    const analysis = (await created.json()) as { id: string };
+    const started = await app.request(`/analyses/${analysis.id}/calibration/start`, { method: "POST" });
+    expect((await started.json() as { state: string }).state).toBe("awaiting_calibration");
+    const startedAgain = await app.request(`/analyses/${analysis.id}/calibration/start`, { method: "POST" });
+    expect(startedAgain.status).toBe(200);
+    expect((await startedAgain.json() as { state: string }).state).toBe("awaiting_calibration");
+    const response = await app.request(`/analyses/${analysis.id}/correction-sets`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ raceStartSeconds: 1, markerReferenceSeconds: 2, carSelectionSeconds: 3, markers: [{ id: "m1", position: { x: 0.2, y: 0.3 }, source: "detected" }], selectedCarBox: { x: 0.1, y: 0.1, width: 0.2, height: 0.2 } }) });
+    expect(response.status).toBe(201);
+    expect((await response.json() as { version: number }).version).toBe(1);
+    expect((await (await app.request(`/analyses/${analysis.id}`)).json() as { state: string }).state).toBe("ready");
+  });
+
+  it("rejects correction sets after calibration has been accepted", async () => {
+    const workflow = new AnalysisWorkflow(new InMemoryAnalysisStore());
+    const draft = await workflow.createDraft({ videoPath: "browser-sqlite://video-1", videoName: "race.mp4" });
+    await workflow.startCalibration(draft.id);
+    await workflow.createAndAcceptCorrectionSet(draft.id, correctionPayload);
+    await expect(workflow.createAndAcceptCorrectionSet(draft.id, correctionPayload)).rejects.toThrow(
+      "correction sets can only be accepted while awaiting calibration, not ready",
+    );
+  });
+
+  it("rejects correction boxes outside normalized frame coordinates", async () => {
+    const app = testApp();
+    const created = await app.request("/analyses", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ videoPath: "browser-sqlite://video-1", videoName: "race.mp4" }) });
+    const analysis = (await created.json()) as { id: string };
+    const response = await app.request(`/analyses/${analysis.id}/correction-sets`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ raceStartSeconds: 1, markerReferenceSeconds: 2, carSelectionSeconds: 3, markers: [{ id: "m1", position: { x: 2, y: 0.3 }, source: "manual" }], selectedCarBox: { x: 0, y: 0, width: 2, height: 1 } }) });
+    expect(response.status).toBe(400);
+  });
+
   it("exposes health, draft creation, and lifecycle actions", async () => {
     const app = testApp();
     expect((await app.request("/health")).status).toBe(200);
-    const created = await app.request("/analyses", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ videoPath: "/race.mp4", videoName: "race.mp4", initialBox: { x: 1, y: 2, width: 3, height: 4 } }) });
+    const created = await app.request("/analyses", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ videoPath: "/race.mp4", videoName: "race.mp4" }) });
     expect(created.status).toBe(201);
     const analysis = (await created.json()) as { id: string };
     const queued = await app.request(`/analyses/${analysis.id}/queue`, { method: "POST" });
-    expect(((await queued.json()) as { state: string }).state).toBe("queued");
+    expect(queued.status).toBe(400);
   });
 
   it("cancels when the Workflow is still queued", async () => {
     const workflow = new AnalysisWorkflow(new InMemoryAnalysisStore());
     const draft = await workflow.createDraft({ videoPath: "/race.mp4", videoName: "race.mp4" });
-    await workflow.queue(draft.id);
+    await prepareQueued(workflow, draft);
     await workflow.start(draft.id);
     let pauseCalls = 0;
     const runtime = {
@@ -83,7 +131,7 @@ describe("analysis API", () => {
   it("persists running state before creating a Workflow instance", async () => {
     const workflow = new AnalysisWorkflow(new InMemoryAnalysisStore());
     const draft = await workflow.createDraft({ videoPath: "/race.mp4", videoName: "race.mp4" });
-    await workflow.queue(draft.id);
+    await prepareQueued(workflow, draft);
     let stateWhenCreated: string | undefined;
     let createCalls = 0;
     const runtime = {
@@ -108,7 +156,7 @@ describe("analysis API", () => {
   it("resumes a paused Workflow when starting a queued analysis", async () => {
     const workflow = new AnalysisWorkflow(new InMemoryAnalysisStore());
     const draft = await workflow.createDraft({ videoPath: "/race.mp4", videoName: "race.mp4" });
-    await workflow.queue(draft.id);
+    await prepareQueued(workflow, draft);
     await workflow.start(draft.id);
     await workflow.cancel(draft.id);
     await workflow.queue(draft.id);
@@ -135,7 +183,7 @@ describe("analysis API", () => {
   it("restarts a terminal Workflow when starting a queued analysis", async () => {
     const workflow = new AnalysisWorkflow(new InMemoryAnalysisStore());
     const draft = await workflow.createDraft({ videoPath: "/race.mp4", videoName: "race.mp4" });
-    await workflow.queue(draft.id);
+    await prepareQueued(workflow, draft);
     await workflow.start(draft.id);
     await workflow.cancel(draft.id);
     await workflow.queue(draft.id);
@@ -182,7 +230,7 @@ describe("analysis API", () => {
   it("pauses a running Workflow before marking the analysis cancelled", async () => {
     const workflow = new AnalysisWorkflow(new InMemoryAnalysisStore());
     const draft = await workflow.createDraft({ videoPath: "/race.mp4", videoName: "race.mp4" });
-    await workflow.queue(draft.id);
+    await prepareQueued(workflow, draft);
     await workflow.start(draft.id);
     let stateWhenPaused: string | undefined;
     const runtime = {
@@ -208,7 +256,7 @@ describe("analysis API", () => {
   it("marks the analysis running before resuming a paused Workflow", async () => {
     const workflow = new AnalysisWorkflow(new InMemoryAnalysisStore());
     const draft = await workflow.createDraft({ videoPath: "/race.mp4", videoName: "race.mp4" });
-    await workflow.queue(draft.id);
+    await prepareQueued(workflow, draft);
     await workflow.start(draft.id);
     await workflow.cancel(draft.id);
     let stateWhenResumed: string | undefined;
@@ -235,7 +283,7 @@ describe("analysis API", () => {
   it("pauses a Workflow that is waiting between durable steps", async () => {
     const workflow = new AnalysisWorkflow(new InMemoryAnalysisStore());
     const draft = await workflow.createDraft({ videoPath: "/race.mp4", videoName: "race.mp4" });
-    await workflow.queue(draft.id);
+    await prepareQueued(workflow, draft);
     await workflow.start(draft.id);
     let pauseCalls = 0;
     const runtime = {
@@ -260,7 +308,7 @@ describe("analysis API", () => {
   it("does not issue a second pause while a Workflow is waiting for pause", async () => {
     const workflow = new AnalysisWorkflow(new InMemoryAnalysisStore());
     const draft = await workflow.createDraft({ videoPath: "/race.mp4", videoName: "race.mp4" });
-    await workflow.queue(draft.id);
+    await prepareQueued(workflow, draft);
     await workflow.start(draft.id);
     let pauseCalls = 0;
     const runtime = {
@@ -286,7 +334,7 @@ describe("analysis API", () => {
   it("restarts a terminal Workflow instance when resuming a cancelled analysis", async () => {
     const workflow = new AnalysisWorkflow(new InMemoryAnalysisStore());
     const draft = await workflow.createDraft({ videoPath: "/race.mp4", videoName: "race.mp4" });
-    await workflow.queue(draft.id);
+    await prepareQueued(workflow, draft);
     await workflow.start(draft.id);
     await workflow.cancel(draft.id);
     let stateWhenRestarted: string | undefined;
@@ -313,7 +361,7 @@ describe("analysis API", () => {
   it("creates a Workflow when resuming a cancelled analysis that was never started", async () => {
     const workflow = new AnalysisWorkflow(new InMemoryAnalysisStore());
     const draft = await workflow.createDraft({ videoPath: "/race.mp4", videoName: "race.mp4" });
-    await workflow.queue(draft.id);
+    await prepareQueued(workflow, draft);
     await workflow.cancel(draft.id);
     let stateWhenCreated: string | undefined;
     const runtime = {
@@ -355,111 +403,5 @@ describe("analysis API", () => {
 
     expect(response.status).toBe(200);
     expect(calls).toEqual(["seed", "fetch"]);
-  });
-
-  it("preserves lost observations and creates a new segment when the user re-boxes", async () => {
-    const workflow = new AnalysisWorkflow(new InMemoryAnalysisStore());
-    const draft = await workflow.createDraft({
-      videoPath: "/race.mp4",
-      videoName: "race.mp4",
-      initialBox: { x: 10, y: 20, width: 30, height: 40 },
-    });
-    const [initialSegment] = (await workflow.tracking(draft.id)).segments;
-    await workflow.recordFrameObservation(draft.id, {
-      segmentId: initialSegment.id,
-      frameNumber: 10,
-      timestampMs: 400,
-      quality: "tracked",
-      box: { x: 11, y: 20, width: 30, height: 40 },
-      observationFilePath: "local://race/frames/10.json",
-      qualityArtifactPath: "local://race/quality/10.json",
-    });
-    await workflow.recordFrameObservation(draft.id, {
-      segmentId: initialSegment.id,
-      frameNumber: 11,
-      timestampMs: 440,
-      quality: "lost",
-      observationFilePath: "local://race/frames/11.json",
-      qualityArtifactPath: "local://race/quality/11.json",
-    });
-
-    const recovered = await workflow.rebox(draft.id, {
-      frameNumber: 12,
-      timestampMs: 480,
-      box: { x: 100, y: 200, width: 30, height: 40 },
-      observationFilePath: "local://race/frames/12.json",
-      qualityArtifactPath: "local://race/quality/12.json",
-    });
-    const tracking = await workflow.tracking(draft.id);
-
-    expect(recovered.observation.quality).toBe("reacquired");
-    expect(tracking.segments).toHaveLength(2);
-    expect(tracking.observations.map(({ quality }) => quality)).toEqual(["tracked", "lost", "reacquired"]);
-    expect(tracking.observations[1].box).toBeNull();
-    expect((await workflow.get(draft.id)).checkpoint).toBe("tracking-frame-12");
-  });
-
-  it("requires local quality artifacts and a lost observation before re-boxing", async () => {
-    const workflow = new AnalysisWorkflow(new InMemoryAnalysisStore());
-    const draft = await workflow.createDraft({
-      videoPath: "/race.mp4",
-      videoName: "race.mp4",
-      initialBox: { x: 10, y: 20, width: 30, height: 40 },
-    });
-    const [segment] = (await workflow.tracking(draft.id)).segments;
-
-    await expect(workflow.recordFrameObservation(draft.id, {
-      segmentId: segment.id,
-      frameNumber: 1,
-      timestampMs: 40,
-      quality: "tracked",
-      box: { x: 10, y: 20, width: 30, height: 40 },
-      observationFilePath: "https://example.test/frame.json",
-      qualityArtifactPath: "local://race/quality/1.json",
-    })).rejects.toThrow("artifact paths must reference local files");
-    await expect(workflow.recordFrameObservation(draft.id, {
-      segmentId: segment.id,
-      frameNumber: 1,
-      timestampMs: 40,
-      quality: "tracked",
-      box: { x: 10, y: 20, width: 30, height: 40 },
-      observationFilePath: "local://race/frames/../outside.json",
-      qualityArtifactPath: "local://race/quality/1.json",
-    })).rejects.toThrow("artifact paths must reference local files");
-    await expect(workflow.rebox(draft.id, {
-      frameNumber: 2,
-      timestampMs: 80,
-      box: { x: 10, y: 20, width: 30, height: 40 },
-      observationFilePath: "local://race/frames/2.json",
-      qualityArtifactPath: "local://race/quality/2.json",
-    })).rejects.toThrow("re-boxing requires a lost observation");
-  });
-
-  it("exposes tracking observations and rejects boxes with remote artifacts", async () => {
-    const app = testApp();
-    const created = await app.request("/analyses", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ videoPath: "/race.mp4", videoName: "race.mp4", initialBox: { x: 1, y: 2, width: 3, height: 4 } }),
-    });
-    const analysis = await created.json() as { id: string };
-    const tracking = await app.request(`/analyses/${analysis.id}/tracking`);
-    const [{ id: segmentId }] = (await tracking.json() as { segments: { id: string }[] }).segments;
-    const rejected = await app.request(`/analyses/${analysis.id}/tracking/observations`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        segmentId,
-        frameNumber: 1,
-        timestampMs: 40,
-        quality: "tracked",
-        box: { x: 1, y: 2, width: 3, height: 4 },
-        observationFilePath: "https://example.test/frame.json",
-        qualityArtifactPath: "local://race/quality/1.json",
-      }),
-    });
-
-    expect(tracking.status).toBe(200);
-    expect(rejected.status).toBe(400);
   });
 });

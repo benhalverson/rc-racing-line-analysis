@@ -1,6 +1,10 @@
+import type { TrackingArtifacts } from '../../../../shared/tracking-contract';
+import type { NormalizedBox } from '../../../../shared/calibration-contract';
 import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
+import type { StabilizationReview } from './local-runtime';
 import { Observable } from 'rxjs';
+import type { CorrectionSet, CorrectionSetPayload, LocalVideoRef, VideoStorage } from '../../../../shared/calibration-contract';
 
 export interface Analysis {
   id: string;
@@ -14,31 +18,9 @@ export interface Analysis {
   error: string | null;
   createdAt: string;
   updatedAt: string;
-}
-
-export interface BoundingBox {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
-export type TrackingQuality = 'tracked' | 'suspect' | 'lost' | 'reacquired';
-
-export interface FrameObservation {
-  id: string;
-  segmentId: string;
-  frameNumber: number;
-  timestampMs: number;
-  quality: TrackingQuality;
-  box: BoundingBox | null;
-  observationFilePath: string;
-  qualityArtifactPath: string;
-}
-
-export interface TrackingData {
-  segments: { id: string; startFrame: number; initialBox: BoundingBox }[];
-  observations: FrameObservation[];
+  videoStorage: VideoStorage;
+  localVideoRef?: LocalVideoRef;
+  acceptedCorrectionSetId: string | null;
 }
 
 export type AnalysisConnectionState = 'connected' | 'reconnecting' | 'disconnected';
@@ -52,40 +34,41 @@ export interface AnalysisSocketMessage {
 })
 export class AnalysisApi {
   private readonly http = inject(HttpClient);
+  /** Creates a draft with the active runtime storage identity. */
   createDraft(input: {
     videoPath: string;
     videoName: string;
     carDescription?: string;
-    initialBox: BoundingBox;
+    videoStorage?: VideoStorage;
+    localVideoRef?: LocalVideoRef;
   }): Observable<Analysis> {
     return this.http.post<Analysis>('/api/analyses', input);
   }
+  startCalibration(id: string) { return this.http.post<Analysis>(`/api/analyses/${id}/calibration/start`, {}); }
+  saveCorrectionSet(id: string, payload: CorrectionSetPayload) { return this.http.post<CorrectionSet>(`/api/analyses/${id}/correction-sets`, payload); }
+  correctionSets(id: string) { return this.http.get<{ correctionSets: CorrectionSet[] }>(`/api/analyses/${id}/correction-sets`); }
+  /** Reads local persisted stabilization diagnostics for review. */
+  artifacts(id: string) { return this.http.get<{ stabilization?: StabilizationReview }>(`/api/analyses/${id}/artifacts`); }
+  /** Reads decoded observations from the accepted current local run. */
+  tracking(id: string) { return this.http.get<{ tracking?: TrackingArtifacts }>(`/api/analyses/${id}/tracking`); }
+  /** Confirms identity with a drawn box; timestamps and file paths come from local evidence. */
+  rebox(id: string, frame: number, box: NormalizedBox) { return this.http.post(`/api/analyses/${id}/tracking/rebox`, { frame, box }); }
   get(id: string): Observable<Analysis> {
     return this.http.get<Analysis>(`/api/analyses/${id}`);
-  }
-  tracking(id: string): Observable<TrackingData> {
-    return this.http.get<TrackingData>(`/api/analyses/${id}/tracking`);
-  }
-  rebox(id: string, input: {
-    frameNumber: number;
-    timestampMs: number;
-    box: BoundingBox;
-    observationFilePath: string;
-    qualityArtifactPath: string;
-  }): Observable<TrackingData> {
-    return this.http.post<TrackingData>(`/api/analyses/${id}/tracking/rebox`, input);
   }
   action(id: string, action: 'queue' | 'start' | 'cancel' | 'resume'): Observable<Analysis> {
     return this.http.post<Analysis>(`/api/analyses/${id}/${action}`, {});
   }
 
-  updates(id: string, onState: (state: AnalysisConnectionState) => void): Observable<AnalysisSocketMessage> {
+  /** Streams browser runtime updates or polls the local Node workflow. */
+  updates(id: string, onState: (state: AnalysisConnectionState) => void, localNode = false): Observable<AnalysisSocketMessage> {
+    if (localNode) return this.localUpdates(id, onState);
     return new Observable((subscriber) => {
       let socket: WebSocket | undefined;
       let retryTimer: ReturnType<typeof setTimeout> | undefined;
       let attempts = 0;
       let stopped = false;
-      const terminal = (analysis: Analysis) => ['completed', 'failed', 'cancelled'].includes(analysis.state);
+      const terminal = (analysis: Analysis) => ['completed', 'needs_correction', 'failed', 'cancelled'].includes(analysis.state);
       const connect = () => {
         if (stopped) return;
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -110,4 +93,27 @@ export class AnalysisApi {
       return () => { stopped = true; if (retryTimer) clearTimeout(retryTimer); socket?.close(); onState('disconnected'); };
     });
   }
+  /** Polls persisted workflow state without requiring a cloud WebSocket binding. */
+  private localUpdates(id: string, onState: (state: AnalysisConnectionState) => void): Observable<AnalysisSocketMessage> {
+    return new Observable((subscriber) => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      let stopped = false;
+      let request: { unsubscribe(): void } | undefined;
+      const poll = () => {
+        if (stopped) return;
+        request = this.get(id).subscribe({
+          next: (analysis) => {
+            onState('connected');
+            subscriber.next({ type: 'updated', analysis });
+            if (['completed', 'needs_correction', 'failed', 'cancelled'].includes(analysis.state)) subscriber.complete();
+            else timer = setTimeout(poll, 500);
+          },
+          error: () => { onState('reconnecting'); timer = setTimeout(poll, 1000); },
+        });
+      };
+      poll();
+      return () => { stopped = true; if (timer) clearTimeout(timer); request?.unsubscribe(); onState('disconnected'); };
+    });
+  }
+
 }

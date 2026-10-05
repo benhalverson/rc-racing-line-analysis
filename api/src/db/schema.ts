@@ -12,32 +12,17 @@ export const analyses = sqliteTable("analyses", {
   error: text("error"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
+  videoStorage: text("video_storage").notNull().default("browser-sqlite"),
+  localVideoRef: text("local_video_ref").notNull().default("{}"),
+  acceptedCorrectionSetId: text("accepted_correction_set_id"),
 });
 
-export const trackSegments = sqliteTable("track_segments", {
+export const correctionSets = sqliteTable("correction_sets", {
   id: text("id").primaryKey(),
   analysisId: text("analysis_id").notNull().references(() => analyses.id, { onDelete: "cascade" }),
-  startFrame: integer("start_frame").notNull(),
-  boxX: real("box_x").notNull(),
-  boxY: real("box_y").notNull(),
-  boxWidth: real("box_width").notNull(),
-  boxHeight: real("box_height").notNull(),
-  createdAt: text("created_at").notNull(),
-});
-
-export const frameObservations = sqliteTable("frame_observations", {
-  id: text("id").primaryKey(),
-  analysisId: text("analysis_id").notNull().references(() => analyses.id, { onDelete: "cascade" }),
-  segmentId: text("segment_id").notNull().references(() => trackSegments.id, { onDelete: "cascade" }),
-  frameNumber: integer("frame_number").notNull(),
-  timestampMs: integer("timestamp_ms").notNull(),
-  quality: text("quality").notNull(),
-  boxX: real("box_x"),
-  boxY: real("box_y"),
-  boxWidth: real("box_width"),
-  boxHeight: real("box_height"),
-  observationFilePath: text("observation_file_path").notNull(),
-  qualityArtifactPath: text("quality_artifact_path").notNull(),
+  version: integer("version").notNull(),
+  payload: text("payload").notNull(),
+  accepted: integer("accepted", { mode: "boolean" }).notNull().default(false),
   createdAt: text("created_at").notNull(),
 });
 
@@ -47,4 +32,38 @@ export const timingImports = sqliteTable("timing_imports", {
 
 export const timingLaps = sqliteTable("timing_laps", {
   id: integer("id").primaryKey({ autoIncrement: true }), importId: text("import_id").notNull().references(() => timingImports.id, { onDelete: "cascade" }), lapNumber: integer("lap_number").notNull(), lapTimeSeconds: real("lap_time_seconds"), lapTimeText: text("lap_time_text").notNull(), valid: integer("valid"), statusText: text("status_text"),
+});
+
+export const processingRuns = sqliteTable("processing_runs", {
+  id: text("id").primaryKey(),
+  analysisId: text("analysis_id").notNull().references(() => analyses.id, { onDelete: "cascade" }),
+  correctionSetId: text("correction_set_id").notNull().references(() => correctionSets.id),
+  providerVersion: text("provider_version").notNull(),
+  status: text("status").notNull(),
+  frame: integer("frame").notNull().default(-1),
+  trackingFrame: integer("tracking_frame").notNull().default(-1),
+  error: text("error"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
+export const localArtifacts = sqliteTable("local_artifacts", {
+  id: text("id").primaryKey(),
+  analysisId: text("analysis_id").notNull().references(() => analyses.id, { onDelete: "cascade" }),
+  runId: text("run_id").notNull().references(() => processingRuns.id),
+  correctionSetId: text("correction_set_id").notNull().references(() => correctionSets.id),
+  kind: text("kind").notNull(),
+  path: text("path").notNull(),
+  createdAt: text("created_at").notNull(),
+});
+
+/** Append-only manual identity confirmations scoped to accepted calibration authority. */
+export const trackingRecoveries = sqliteTable("tracking_recoveries", {
+  id: text("id").primaryKey(),
+  analysisId: text("analysis_id").notNull().references(() => analyses.id, { onDelete: "cascade" }),
+  correctionSetId: text("correction_set_id").notNull().references(() => correctionSets.id),
+  frame: integer("frame").notNull(),
+  seconds: real("seconds").notNull(),
+  box: text("box").notNull(),
+  createdAt: text("created_at").notNull(),
 });

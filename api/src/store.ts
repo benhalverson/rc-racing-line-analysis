@@ -1,10 +1,9 @@
 import { randomUUID } from "node:crypto";
-import type { Analysis, AnalysisStore, CreateAnalysisInput, CreateFrameObservationInput, CreateTrackSegmentInput, FrameObservation, TrackSegment } from "./domain";
+import type { Analysis, AnalysisStore, CreateAnalysisInput } from "./domain";
+import type { CorrectionSet } from "../../shared/calibration-contract";
 
 export class InMemoryAnalysisStore implements AnalysisStore {
   private readonly analyses = new Map<string, Analysis>();
-  private readonly segments = new Map<string, TrackSegment[]>();
-  private readonly observations = new Map<string, FrameObservation[]>();
 
   async createDraft(input: CreateAnalysisInput): Promise<Analysis> {
     const now = new Date().toISOString();
@@ -20,11 +19,11 @@ export class InMemoryAnalysisStore implements AnalysisStore {
       error: null,
       createdAt: now,
       updatedAt: now,
+      videoStorage: input.videoStorage ?? "browser-sqlite",
+      localVideoRef: input.localVideoRef ?? { id: input.videoPath.replace(/^browser-sqlite:\/\//, ""), name: input.videoName, mimeType: "video/*", size: 0, lastModified: 0 },
+      acceptedCorrectionSetId: null,
     };
     this.analyses.set(analysis.id, analysis);
-    if (input.initialBox) {
-      await this.createTrackSegment({ analysisId: analysis.id, startFrame: 0, initialBox: input.initialBox });
-    }
     return analysis;
   }
 
@@ -37,37 +36,23 @@ export class InMemoryAnalysisStore implements AnalysisStore {
       updatedAt: new Date().toISOString(),
     });
   }
-  async createTrackSegment(input: CreateTrackSegmentInput): Promise<TrackSegment> {
-    const segment: TrackSegment = {
-      id: randomUUID(),
-      analysisId: input.analysisId,
-      startFrame: input.startFrame,
-      initialBox: input.initialBox,
-      createdAt: new Date().toISOString(),
-    };
-    this.segments.set(input.analysisId, [...(this.segments.get(input.analysisId) ?? []), segment]);
-    return segment;
+  async createCorrectionSet(analysisId: string, payload: Omit<CorrectionSet, "id" | "analysisId" | "version" | "accepted" | "createdAt">): Promise<CorrectionSet> {
+    const analysis = await this.get(analysisId);
+    if (!analysis) throw new Error("analysis not found");
+    const versions = [...this.correctionSets.values()].filter((set) => set.analysisId === analysisId);
+    const set: CorrectionSet = { ...payload, id: randomUUID(), analysisId, version: versions.length + 1, accepted: false, createdAt: new Date().toISOString() };
+    this.correctionSets.set(set.id, set);
+    return set;
   }
-  async listTrackSegments(analysisId: string): Promise<TrackSegment[]> {
-    return this.segments.get(analysisId) ?? [];
+  async listCorrectionSets(analysisId: string) { return [...this.correctionSets.values()].filter((set) => set.analysisId === analysisId).sort((a, b) => b.version - a.version); }
+  async acceptCorrectionSet(analysisId: string, correctionSetId: string) {
+    const set = this.correctionSets.get(correctionSetId);
+    if (!set || set.analysisId !== analysisId) throw new Error("correction set not found");
+    for (const item of this.correctionSets.values()) if (item.analysisId === analysisId) item.accepted = item.id === correctionSetId;
+    const analysis = await this.get(analysisId);
+    if (!analysis) throw new Error("analysis not found");
+    await this.save({ ...analysis, state: "ready", phase: "calibrating", acceptedCorrectionSetId: correctionSetId });
+    return { ...set, accepted: true };
   }
-  async createFrameObservation(input: CreateFrameObservationInput): Promise<FrameObservation> {
-    const observation: FrameObservation = {
-      id: randomUUID(),
-      analysisId: input.analysisId,
-      segmentId: input.segmentId,
-      frameNumber: input.frameNumber,
-      timestampMs: input.timestampMs,
-      quality: input.quality,
-      box: input.box ?? null,
-      observationFilePath: input.observationFilePath,
-      qualityArtifactPath: input.qualityArtifactPath,
-      createdAt: new Date().toISOString(),
-    };
-    this.observations.set(input.analysisId, [...(this.observations.get(input.analysisId) ?? []), observation]);
-    return observation;
-  }
-  async listFrameObservations(analysisId: string): Promise<FrameObservation[]> {
-    return this.observations.get(analysisId) ?? [];
-  }
+  private readonly correctionSets = new Map<string, CorrectionSet>();
 }
