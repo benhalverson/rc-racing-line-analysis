@@ -1,3 +1,5 @@
+import type { AlternativeWorkspace } from '../../shared/alternative-contract';
+import { alternativeRevisions } from '../src/db/schema';
 import type { RacingLineReview } from '../../shared/review-contract';
 import { LocalTimingStore } from '../src/local-timing-store';
 import { reviewRevisions } from '../src/db/schema';
@@ -35,7 +37,7 @@ async function fixture() {
   const imported = await videos.importVideo(new File([await readFile(video)], 'race.mkv'));
   const analysis = await workflow.createDraft({ ...imported, videoName: 'race.mkv', videoStorage: 'local-disk' }); await workflow.startCalibration(analysis.id);
   const correction = await workflow.createAndAcceptCorrectionSet(analysis.id, { markers, raceStartSeconds: 0, markerReferenceSeconds: 0, carSelectionSeconds: 0, selectedCarBox: { x: .4, y: .5, width: .08, height: .08 } });
-  return { persistence, artifacts, videos, workflow, analysis, correction };
+  return { root, persistence, artifacts, videos, workflow, analysis, correction };
 }
 
 /** Performs a JSON request against the real local runtime adapter. */
@@ -115,4 +117,43 @@ describe('real decoded tracking through local runtime', () => {
     release(); expect((await resumed).status).toBe(200);
     await expect.poll(async () => (await ctx.workflow.get(ctx.analysis.id)).state, { timeout: 10_000 }).toBe('completed'); expect(calls).toBe(2);
   });
+});
+
+/** Exercises durable alternatives against the actual decoded tracking and review workflow. */
+it('persists immutable hypotheses, rejects stale authority and concurrent revisions, and preserves loss', async () => {
+  const ctx = await fixture();
+  await ctx.workflow.queue(ctx.analysis.id); await ctx.workflow.start(ctx.analysis.id);
+  await executeLocalStabilization(ctx.analysis.id, ctx.workflow, ctx.persistence, ctx.artifacts, { resolveVideoPath: async reference => ctx.videos.resolvePath(reference) });
+  const app = createLocalApp(ctx.workflow, ctx.persistence, ctx.artifacts, ctx.videos, async () => undefined);
+  const url = `http://localhost/analyses/${ctx.analysis.id}/alternatives`;
+  const workspace = await (await app.request(url)).json() as AlternativeWorkspace;
+  expect(workspace.observed.length).toBeCloseTo(2);
+  expect(workspace.observed.warnings.join(' ')).toContain('gaps are not filled');
+  const input = { ...workspace.authority, alternativeId: null, baseVersion: 0, name: 'Late apex', points: [{ x: 10, y: 10 }, { x: 30, y: 10 }, { x: 30, y: 30 }] };
+  const first = await (await post(app, ctx.analysis.id, 'alternatives', input)).json() as AlternativeWorkspace;
+  expect(first.versions[0]).toMatchObject({ name: 'Late apex', version: 1, hypothetical: true, geometry: { length: 40, uncertainty: expect.stringContaining('Not quantified') } });
+  expect(first.versions[0]).not.toHaveProperty('lapTime');
+  const revision = { ...input, alternativeId: first.versions[0].alternativeId, baseVersion: 1, name: 'Later apex', points: [{ x: 10, y: 10 }, { x: 40, y: 40 }] };
+  const results = await Promise.all([post(app, ctx.analysis.id, 'alternatives', revision), post(app, ctx.analysis.id, 'alternatives', revision)]);
+  expect(results.map(r => r.status).sort()).toEqual([201, 400]);
+  const reopened = await (await app.request(url)).json() as AlternativeWorkspace;
+  expect(reopened.versions.map(v => [v.name, v.version])).toEqual([['Late apex', 1], ['Later apex', 2]]);
+  expect(reopened.versions[0].points).toEqual(input.points);
+  const rows = ctx.persistence.db.select().from(alternativeRevisions).all();
+  expect(rows).toHaveLength(2); expect(rows[0]).not.toHaveProperty('points');
+  const disk = JSON.parse(await readFile(rows[0].path, 'utf8'));
+  expect(disk.geometry).toEqual(first.versions[0].geometry); expect(disk.geometryVersion).toBe(first.versions[0].geometryVersion);
+  const independent = new LocalPersistence(join(ctx.root, 'metadata.sqlite'), resolve('api/drizzle/local-migrations'));
+  try {
+    const independentApp = createLocalApp(new AnalysisWorkflow(independent), independent, new LocalArtifactStore(ctx.artifacts.root, independent), ctx.videos, async () => undefined);
+    expect(await (await independentApp.request(url)).json()).toEqual(reopened);
+  } finally { independent.close(); }
+  for (const invalid of [{ name: ' ' }, { points: [{ x: -1, y: 1 }, { x: 1, y: 1 }] }, { points: [{ x: 1, y: 1 }, { x: 1, y: 1 }] }, { lapTime: 10 }, { baseVersion: -1 }]) expect((await post(app, ctx.analysis.id, 'alternatives', { ...input, ...invalid })).status).toBe(400);
+  const review = await (await app.request(`http://localhost/analyses/${ctx.analysis.id}/review`)).json() as RacingLineReview;
+  expect((await post(app, ctx.analysis.id, 'review', { ...review.revision, action: 'add', seconds: .25 })).status).toBe(400); // strict transport rejects extra revision fields
+  expect((await post(app, ctx.analysis.id, 'review', { version: review.revision.version, runId: review.revision.runId, action: 'add', seconds: .25 })).status).toBe(201);
+  expect((await post(app, ctx.analysis.id, 'alternatives', input)).status).toBe(400);
+  const stale = await (await app.request(url)).json() as AlternativeWorkspace;
+  expect(stale.versions.every(v => !v.current)).toBe(true);
+  expect(stale.versions[0].points).toEqual(input.points);
 });

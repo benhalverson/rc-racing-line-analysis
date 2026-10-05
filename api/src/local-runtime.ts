@@ -1,6 +1,7 @@
 import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { Readable } from 'node:stream';
+import { AlternativeWorkflow } from './alternative-workflow';
 import { ReviewWorkflow } from './review-workflow';
 import { TrackingWorkflow } from "./tracking-workflow";
 import { z } from "zod";
@@ -121,6 +122,21 @@ export function createLocalApp(workflow: AnalysisWorkflow, persistence: LocalPer
         z.object({ ...base, action: z.literal('assign'), id: z.string().min(1), lapNumber: z.number().int().positive().nullable() }).strict(),
       ]).parse(await c.req.json());
       return c.json(await review.edit(c.req.param('id'), input), 201);
+    } catch (error) { return c.json({ error: errorMessage(error) }, 400); }
+  });
+  const alternatives = new AlternativeWorkflow(persistence, artifacts);
+  app.get('/analyses/:id/alternatives', async c => {
+    try { return c.json(await alternatives.get(c.req.param('id'))); }
+    catch (error) { return c.json({ error: errorMessage(error) }, 404); }
+  });
+  app.post('/analyses/:id/alternatives', async c => {
+    try {
+      const input = z.object({
+        runId: z.string().min(1), correctionSetId: z.string().min(1), evidenceId: z.string().min(1), trackReferenceId: z.string().min(1), reviewVersion: z.number().int().nonnegative(),
+        alternativeId: z.string().uuid().nullable(), baseVersion: z.number().int().nonnegative(), name: z.string().max(100),
+        points: z.array(z.object({ x: z.number().finite(), y: z.number().finite() }).strict()).min(2).max(10000),
+      }).strict().parse(await c.req.json());
+      return c.json(await alternatives.save(c.req.param('id'), input), 201);
     } catch (error) { return c.json({ error: errorMessage(error) }, 400); }
   });
   app.get('/analyses/:id/video', async c => {

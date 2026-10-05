@@ -88,5 +88,96 @@ test('VFR seeks and playback render a nonidentity projective track in reference 
     await expect(timed.locator('.box')).toHaveAttribute('style', /left:39.166666666666664%/);
     await video.evaluate((element: HTMLVideoElement) => { element.currentTime = .55; });
     await expect(timed.getByTestId('review-cursor')).toContainText('Video 0.360s · frame 3');
+
+    // Real browser alternative drawing uses the same decoded stabilized canvas.
+    const alternatives = timed.getByRole('region', { name: 'Hypothetical alternatives' });
+    await alternatives.getByRole('button', { name: 'Draw new alternative' }).click();
+    await alternatives.getByRole('button', { name: 'Save alternative version' }).click();
+    await expect(alternatives.getByRole('alert')).toContainText('Enter a name');
+    await alternatives.getByLabel('Alternative name').fill('Late apex');
+    const alternativeBounds = await canvas.boundingBox(); if (!alternativeBounds) throw new Error('Track canvas unavailable');
+    await canvas.click({ position: { x: alternativeBounds.width * .25, y: alternativeBounds.height * .3 } });
+    await canvas.click({ position: { x: alternativeBounds.width * .5, y: alternativeBounds.height * .3 } });
+    await canvas.click({ position: { x: alternativeBounds.width * .6, y: alternativeBounds.height * .6 } });
+    await alternatives.getByRole('button', { name: 'Save alternative version' }).click();
+    await expect(alternatives.getByRole('heading', { name: 'Late apex · v1 · Hypothetical' })).toBeVisible();
+    await alternatives.getByRole('button', { name: 'Revise Late apex v1', exact: true }).click();
+    await alternatives.getByLabel('Alternative name').fill('Later apex');
+    await alternatives.getByRole('button', { name: 'Undo alternative point' }).click();
+    await canvas.click({ position: { x: alternativeBounds.width * .7, y: alternativeBounds.height * .7 } });
+    await alternatives.getByRole('button', { name: 'Save alternative version' }).click();
+    await expect(alternatives.getByRole('heading', { name: 'Later apex · v2 · Hypothetical' })).toBeVisible();
+    await alternatives.getByRole('button', { name: 'Compare Late apex v1 on track' }).click();
+    await alternatives.getByRole('button', { name: 'Draw new alternative' }).click();
+    await alternatives.getByLabel('Alternative name').fill('Outside');
+    await canvas.click({ position: { x: alternativeBounds.width * .1, y: alternativeBounds.height * .6 } });
+    await canvas.click({ position: { x: alternativeBounds.width * .8, y: alternativeBounds.height * .7 } });
+    await alternatives.getByRole('button', { name: 'Save alternative version' }).click();
+    await expect(alternatives.locator('.alternative-card')).toHaveCount(3);
+    const alternativeUrl = `/api/analyses/${analysis.id}/alternatives`;
+    const persisted = await (await page.request.get(alternativeUrl)).json();
+    expect(persisted.versions[0].points).not.toEqual(persisted.versions[1].points);
+    expect(persisted.versions.every((v: { hypothetical: boolean }) => v.hypothetical)).toBe(true);
+    await timed.getByRole('button', { name: 'Reload saved review' }).click();
+    await expect(alternatives.locator('.alternative-card')).toHaveCount(3);
+    await expect(timed.getByTestId('review-cursor')).toContainText('frame 0');
+    expect(await (await page.request.get(alternativeUrl)).json()).toEqual(persisted);
+    await alternatives.getByRole('button', { name: 'Draw new alternative' }).click();
+    await alternatives.getByLabel('Alternative name').fill('Cancelled draft');
+    await alternatives.getByRole('button', { name: 'Cancel alternative draft' }).click();
+    await expect(alternatives.getByLabel('Alternative name')).toHaveCount(0);
+    expect(await (await page.request.get(alternativeUrl)).json()).toEqual(persisted);
+    // Two browser clients revise the same durable version: one must reload.
+    await alternatives.getByRole('button', { name: 'Revise Later apex v2', exact: true }).click();
+    const competing = await page.request.post(alternativeUrl, { data: { ...persisted.authority, alternativeId: persisted.versions[1].alternativeId, baseVersion: 2, name: 'Concurrent', points: [{ x: 10, y: 10 }, { x: 20, y: 20 }] } });
+    expect(competing.status()).toBe(201);
+    await alternatives.getByRole('button', { name: 'Save alternative version' }).click();
+    await expect(alternatives.getByRole('alert')).toContainText('Alternative revision changed');
+    await timed.getByRole('button', { name: 'Reload saved review' }).click();
+    await expect(alternatives.locator('.alternative-card')).toHaveCount(4);
+    await expect(timed.getByTestId('review-cursor')).toContainText('frame 0');
+    // A correction elsewhere invalidates an in-progress draft instead of rebasing it.
+    await alternatives.getByRole('button', { name: 'Draw new alternative' }).click();
+    await alternatives.getByLabel('Alternative name').fill('Stale draft');
+    const redrawBounds = await canvas.boundingBox(); if (!redrawBounds) throw new Error('Track canvas unavailable');
+    await canvas.click({ position: { x: redrawBounds.width * .1, y: redrawBounds.height * .1 } });
+    await canvas.click({ position: { x: redrawBounds.width * .2, y: redrawBounds.height * .2 } });
+    const currentReview = await (await page.request.get(`/api/analyses/${analysis.id}/review`)).json();
+    expect((await page.request.post(`/api/analyses/${analysis.id}/review`, { data: { version: currentReview.revision.version, evidenceId: currentReview.revision.evidenceId, runId: currentReview.revision.runId, action: 'add', seconds: .4 } })).status()).toBe(201);
+    await alternatives.getByRole('button', { name: 'Save alternative version' }).click();
+    await expect(alternatives.getByRole('alert')).toContainText('Review authority changed');
+    await timed.getByRole('button', { name: 'Reload saved review' }).click();
+    await expect(alternatives.getByText('Stale evidence: retained history; excluded from current overlay and comparison', { exact: true })).toHaveCount(4);
+    const invalidAuthority = (await (await page.request.get(alternativeUrl)).json()).authority;
+    const invalidCoordinates = await page.request.post(alternativeUrl, { data: { ...invalidAuthority, alternativeId: null, baseVersion: 0, name: 'Invalid', points: [{ x: -1, y: 1 }, { x: 2, y: 2 }] } });
+    expect(invalidCoordinates.status()).toBe(400); expect((await invalidCoordinates.json()).error).toContain('finite points inside');
+    // Delay an actual old GET while a review edit causes a newer GET in the same component.
+    let releaseOld!: () => void; let oldReady!: () => void; let oldDone!: () => void;
+    const oldFinished = new Promise<void>(resolve => { oldDone = resolve; });
+    const oldCaptured = new Promise<void>(resolve => { oldReady = resolve; });
+    const release = new Promise<void>(resolve => { releaseOld = resolve; });
+    let intercept = true;
+    await page.route(`**${alternativeUrl}`, async route => {
+      if (route.request().method() !== 'GET' || !intercept) { await route.continue(); return; }
+      intercept = false; const response = await route.fetch(); oldReady(); await release; await route.fulfill({ response }); oldDone();
+    });
+    await timed.getByRole('button', { name: 'Reload saved review' }).click(); await oldCaptured;
+    await expect(timed.getByTestId('review-cursor')).toContainText('frame 0');
+    await video.evaluate((element: HTMLVideoElement) => { element.currentTime = .55; });
+    await expect(timed.getByTestId('review-cursor')).toContainText('frame 3');
+    const editResponse = page.waitForResponse(response => new URL(response.url()).pathname === `/api/analyses/${analysis.id}/review` && response.request().method() === 'POST');
+    await timed.getByRole('button', { name: 'Add missed crossing at cursor' }).click();
+    expect((await editResponse).status()).toBe(201);
+    const newest = await (await page.request.get(alternativeUrl)).json();
+    await expect(alternatives.getByText(`Track reference ${newest.authority.trackReferenceId} · review revision ${newest.authority.reviewVersion}`, { exact: true })).toBeVisible();
+    releaseOld(); await oldFinished; await page.unroute(`**${alternativeUrl}`);
+    await expect(alternatives.getByText(`Track reference ${newest.authority.trackReferenceId} · review revision ${newest.authority.reviewVersion}`, { exact: true })).toBeVisible();
+    // Navigation discards an unsaved draft and does not attach it to the replacement analysis.
+    await expect(timed.getByTestId('review-cursor')).toContainText('frame 3');
+    await alternatives.getByRole('button', { name: 'Draw new alternative' }).click();
+    await alternatives.getByLabel('Alternative name').fill('Navigation draft');
+    await page.getByRole('button', { name: 'Create draft' }).click();
+    await expect(timed).toHaveCount(0);
+    expect((await (await page.request.get(alternativeUrl)).json()).versions).toHaveLength(4);
   } finally { await rm(root, { recursive: true, force: true }); }
 });

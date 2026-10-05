@@ -123,6 +123,7 @@ export class App {
       .subscribe({
         next: (value) => {
           this.analysis.set(value);
+          this.clearStabilizationReview();
           this.message.set('Draft saved locally.');
         },
         error: () => this.message.set('Unable to create draft.'),

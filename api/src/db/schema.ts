@@ -78,3 +78,19 @@ export const reviewRevisions = sqliteTable('review_revisions', {
   payload: text('payload').notNull(),
   createdAt: text('created_at').notNull(),
 });
+
+/** Immutable alternative revisions index local geometry files and accepted review provenance. */
+export const alternativeRevisions = sqliteTable('alternative_revisions', {
+  id: text('id').primaryKey(),
+  alternativeId: text('alternative_id').notNull(),
+  analysisId: text('analysis_id').notNull().references(() => analyses.id, { onDelete: 'cascade' }),
+  runId: text('run_id').notNull().references(() => processingRuns.id),
+  correctionSetId: text('correction_set_id').notNull().references(() => correctionSets.id),
+  evidenceId: text('evidence_id').notNull(),
+  trackReferenceId: text('track_reference_id').notNull(),
+  reviewVersion: integer('review_version').notNull(),
+  version: integer('version').notNull(),
+  name: text('name').notNull(),
+  path: text('path').notNull(),
+  createdAt: text('created_at').notNull(),
+});
